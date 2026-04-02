@@ -44,7 +44,7 @@ def print_execute(label: str, resp: dict) -> None:
 
 
 def print_result(response: dict) -> None:
-    """Print output and errors from a BridgeClient response."""
+    """Print output and errors from a VirtuosoClient response."""
     result = response.get("result", {})
     output = result.get("output")
     errors = result.get("errors") or []

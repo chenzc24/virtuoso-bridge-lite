@@ -1,7 +1,5 @@
-"""Basic Virtuoso connectivity: bridge, service, client, SSH transport."""
+"""Basic Virtuoso connectivity."""
 
 from virtuoso_bridge.virtuoso.basic.bridge import VirtuosoClient
-from virtuoso_bridge.virtuoso.basic.client import BridgeClient
-from virtuoso_bridge.virtuoso.basic.service import BridgeService
 
-__all__ = ["VirtuosoClient", "BridgeClient", "BridgeService"]
+__all__ = ["VirtuosoClient"]

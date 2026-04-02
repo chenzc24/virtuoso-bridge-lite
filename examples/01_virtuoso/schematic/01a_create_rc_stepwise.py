@@ -24,7 +24,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent.parent.parent))
 from datetime import datetime
 
 from _timing import format_elapsed, timed_call
-from virtuoso_bridge import BridgeClient
+from virtuoso_bridge import VirtuosoClient
 
 IL_FILE = pathlib.Path(__file__).resolve().parent.parent / "assets" / "schematic_ops.il"
 
@@ -37,7 +37,7 @@ def _decode(raw: str) -> str:
 def main() -> int:
     lib  = os.environ.get("VB_DEFAULT_LIB", "PLAYGROUND_LLM")
     cell = f"rc_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    client = BridgeClient()
+    client = VirtuosoClient.from_env()
 
     load_resp = client.load_il(IL_FILE)
     meta = load_resp.get("result", {}).get("metadata", {})

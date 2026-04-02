@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from _timing import format_elapsed
-from virtuoso_bridge import BridgeClient
+from virtuoso_bridge import VirtuosoClient
 
 IL_FILE = Path(__file__).resolve().parent.parent / "assets" / "schematic_ops.il"
 
@@ -25,7 +25,7 @@ def _decode(raw: str) -> str:
 
 
 def main() -> int:
-    client = BridgeClient()
+    client = VirtuosoClient.from_env()
 
     load_resp = client.load_il(IL_FILE)
     load_meta = load_resp.get("result", {}).get("metadata", {})

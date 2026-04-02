@@ -17,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from _timing import decode_skill, format_elapsed, timed_call
-from virtuoso_bridge import BridgeClient
+from virtuoso_bridge import VirtuosoClient
 
 IL_FILE = Path(__file__).resolve().parent.parent / "assets" / "read_instance_params.il"
 
@@ -41,7 +41,7 @@ def main() -> int:
         quoted = " ".join(f'"{p}"' for p in filter_names)
         args.append(f"?filter list({quoted})")
 
-    client = BridgeClient()
+    client = VirtuosoClient.from_env()
 
     load_elapsed, load_resp = timed_call(lambda: client.load_il(IL_FILE, timeout=20))
     meta = load_resp.get("result", {}).get("metadata", {})

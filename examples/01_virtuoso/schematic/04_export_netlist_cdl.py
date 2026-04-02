@@ -22,7 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from _timing import decode_skill, format_elapsed, timed_call
-from virtuoso_bridge import BridgeClient
+from virtuoso_bridge import VirtuosoClient
 from virtuoso_bridge.virtuoso.ops import escape_skill_string
 
 IL_FILE = Path(__file__).resolve().parent.parent / "assets" / "file_ops.il"
@@ -66,7 +66,7 @@ def main() -> int:
     cell = sys.argv[2] if len(sys.argv) > 2 else None
     tech = sys.argv[3] if len(sys.argv) > 3 else "T28"
 
-    client = BridgeClient()
+    client = VirtuosoClient.from_env()
 
     if not lib or not cell:
         lib, cell, view = client.get_current_design(timeout=10)

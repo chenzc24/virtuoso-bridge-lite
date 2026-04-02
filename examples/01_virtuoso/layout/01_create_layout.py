@@ -10,14 +10,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from _timing import format_elapsed, timed_call
-from virtuoso_bridge import BridgeClient
+from virtuoso_bridge import VirtuosoClient
 
 lib_name = "PLAYGROUND_LLM"
 cell_name = f"layout_demo_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 pdk_lib = "tsmcN28"
 
 def main() -> int:
-    client = BridgeClient()
+    client = VirtuosoClient.from_env()
     print(f"Target Library  : {lib_name}")
     print(f"Target Cell     : {cell_name}")
 

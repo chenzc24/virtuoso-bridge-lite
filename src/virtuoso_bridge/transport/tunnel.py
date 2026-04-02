@@ -8,9 +8,11 @@ localhost:port TCP endpoint; SSHClient makes that endpoint available.
 from __future__ import annotations
 
 import importlib.resources
+import json
 import logging
 import os
 import re
+import signal
 import socket
 import subprocess
 import time
@@ -23,6 +25,8 @@ from virtuoso_bridge.transport.ssh import SSHRunner, CommandResult
 logger = logging.getLogger(__name__)
 
 _TUNNEL_STARTUP_SETTLE_SECONDS = 1.0
+_STATE_DIR = Path.home() / ".cache" / "virtuoso_bridge"
+_STATE_FILE = _STATE_DIR / "state.json"
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +145,7 @@ class SSHClient:
         )
 
         self._tunnel_proc: subprocess.Popen[bytes] | None = None
+        self._saved_tunnel_pid: int | None = None
         self._using_external_tunnel = False
         self._remote_setup_done = False
         self._remote_work_dir: str | None = None
@@ -315,6 +320,7 @@ class SSHClient:
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
+            start_new_session=True,  # detach: tunnel survives parent process
         )
 
         deadline = time.monotonic() + _TUNNEL_STARTUP_SETTLE_SECONDS
@@ -361,6 +367,7 @@ class SSHClient:
             if proc.poll() is None:
                 # Tunnel running
                 self._tunnel_proc = proc
+                self._saved_tunnel_pid = proc.pid
                 if port != self._port:
                     logger.info("Port %d was busy, using port %d", self._port, port)
                     print(f"[port] {self._port} busy, auto-switched to {port}", flush=True)
@@ -390,17 +397,26 @@ class SSHClient:
         if self._ssh_runner.persistent_shell_enabled:
             self._ssh_runner.ensure_persistent_shell(timeout=timeout)
         self.ensure_tunnel()
+        self.save_state()
 
-    def close(self) -> None:
-        """Kill tunnel, clean remote files, close SSH."""
+    def stop(self) -> None:
+        """Kill the tunnel and clean up."""
+        # Kill tunnel by PID (may be from state file or from this session)
+        tunnel_pid = None
         if self._tunnel_proc is not None and self._tunnel_proc.poll() is None:
-            logger.info("Terminating SSH tunnel (PID %d)", self._tunnel_proc.pid)
-            self._tunnel_proc.terminate()
+            tunnel_pid = self._tunnel_proc.pid
+        elif not tunnel_pid:
+            state = self.read_state()
+            if state:
+                tunnel_pid = state.get("tunnel_pid")
+
+        if tunnel_pid:
+            logger.info("Terminating SSH tunnel (PID %d)", tunnel_pid)
             try:
-                self._tunnel_proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self._tunnel_proc.kill()
-            self._tunnel_proc = None
+                os.kill(tunnel_pid, signal.SIGTERM)
+            except OSError:
+                pass
+        self._tunnel_proc = None
 
         if not self._keep_remote_files and self._remote_setup_done and self._remote_work_dir:
             try:
@@ -411,7 +427,68 @@ class SSHClient:
         try:
             self._ssh_runner.close()
         except Exception:
-            logger.warning("Failed to close SSH runner for %s", self._remote_host)
+            pass
+
+        # Clear state
+        if _STATE_FILE.exists():
+            _STATE_FILE.unlink(missing_ok=True)
+
+    def close(self) -> None:
+        """Close SSH runner without killing the tunnel (it survives for other scripts)."""
+        try:
+            self._ssh_runner.close()
+        except Exception:
+            pass
+
+    # -- state file ---------------------------------------------------------
+
+    def save_state(self) -> None:
+        """Save tunnel state so other processes can find the port."""
+        _STATE_DIR.mkdir(parents=True, exist_ok=True)
+        tunnel_pid = self._tunnel_proc.pid if self._tunnel_proc and self._tunnel_proc.poll() is None else self._saved_tunnel_pid
+        state = {
+            "port": self._port,
+            "tunnel_pid": tunnel_pid,
+            "remote_host": self._remote_host,
+            "setup_path": self._remote_virtuoso_setup_path,
+            "started_at": time.time(),
+        }
+        _STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+    @staticmethod
+    def read_state() -> dict[str, Any] | None:
+        """Read saved tunnel state."""
+        if not _STATE_FILE.is_file():
+            return None
+        try:
+            return json.loads(_STATE_FILE.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+
+    @classmethod
+    def is_running(cls) -> bool:
+        """Check if a tunnel is running (process alive + port reachable)."""
+        state = cls.read_state()
+        if not state:
+            return False
+        pid = state.get("tunnel_pid")
+        port = state.get("port")
+        # Check process alive
+        if pid:
+            try:
+                os.kill(pid, 0)
+                return True
+            except OSError:
+                pass
+        # Fallback: check port reachable
+        if port:
+            try:
+                s = socket.create_connection(("127.0.0.1", port), timeout=1)
+                s.close()
+                return True
+            except (ConnectionRefusedError, OSError):
+                pass
+        return False
 
     # -- file transfer (delegated to SSHRunner) -----------------------------
 

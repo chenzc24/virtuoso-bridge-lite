@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from _timing import decode_skill, format_elapsed, timed_call
-from virtuoso_bridge import BridgeClient
+from virtuoso_bridge import VirtuosoClient
 
 ASSETS = Path(__file__).resolve().parent.parent / "assets"
 
@@ -26,7 +26,7 @@ ASSETS = Path(__file__).resolve().parent.parent / "assets"
 def main() -> int:
     lib  = sys.argv[1] if len(sys.argv) >= 2 else "PLAYGROUND_LLM"
     cell = f"tmp_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    client = BridgeClient()
+    client = VirtuosoClient.from_env()
 
     load_elapsed, load_resp = timed_call(lambda: client.load_il(ASSETS / "schematic_ops.il"))
     meta = load_resp.get("result", {}).get("metadata", {})

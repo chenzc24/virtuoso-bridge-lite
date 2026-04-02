@@ -9,11 +9,11 @@ Prerequisites:
 import sys, pathlib; sys.path.insert(0, str(pathlib.Path(__file__).parent.parent.parent))
 from pathlib import Path
 from _timing import print_elapsed
-from virtuoso_bridge import BridgeClient
+from virtuoso_bridge import VirtuosoClient
 
 SONNET_IL = Path(__file__).resolve().parent.parent / "assets" / "sonnet18.il"
 
-client = BridgeClient()
+client = VirtuosoClient.from_env()
 response = client.load_il(SONNET_IL)
 print_elapsed("load_il", response.get("_elapsed", 0.0))
 meta = response.get("result", {}).get("metadata", {})

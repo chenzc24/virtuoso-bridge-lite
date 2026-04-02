@@ -101,29 +101,31 @@ class VirtuosoClient(VirtuosoInterface):
         cls,
         *,
         timeout: int = 30,
-        auto_setup: bool = True,
-        keep_remote_files: bool = False,
         log_to_ciw: bool = True,
     ) -> "VirtuosoClient":
-        """Create a remote bridge from environment variables.
+        """Create a VirtuosoClient from environment variables.
 
-        Creates a SSHClient internally for backward compatibility.
+        If an SSH tunnel is already running (via `virtuoso-bridge start`),
+        connects to its port. Otherwise creates a new SSHClient.
         """
         load_dotenv()
+        from virtuoso_bridge.transport.tunnel import SSHClient
+
+        # Check if tunnel is already running
+        if SSHClient.is_running():
+            state = SSHClient.read_state()
+            port = state["port"]
+            # Create SSHClient for file transfer ops (reuses existing tunnel)
+            ssh = SSHClient.from_env(keep_remote_files=True)
+            return cls(host="127.0.0.1", port=port, timeout=timeout, tunnel=ssh, log_to_ciw=log_to_ciw)
+
+        # No tunnel running — start one
         remote_host = os.getenv("VB_REMOTE_HOST", "").strip()
         if not remote_host:
-            raise RuntimeError("VB_REMOTE_HOST must be set")
+            raise RuntimeError("VB_REMOTE_HOST must be set. Run: virtuoso-bridge init")
 
-        from virtuoso_bridge.transport.tunnel import SSHClient
-        tunnel = SSHClient.from_env(keep_remote_files=keep_remote_files)
-
-        return cls(
-            host="127.0.0.1",
-            port=tunnel.port,
-            timeout=timeout,
-            tunnel=tunnel,
-            log_to_ciw=log_to_ciw,
-        )
+        ssh = SSHClient.from_env(keep_remote_files=True)
+        return cls(host="127.0.0.1", port=ssh.port, timeout=timeout, tunnel=ssh, log_to_ciw=log_to_ciw)
 
     @classmethod
     def local(

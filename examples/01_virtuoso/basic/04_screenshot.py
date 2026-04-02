@@ -19,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from _timing import decode_skill, format_elapsed, timed_call
-from virtuoso_bridge import BridgeClient
+from virtuoso_bridge import VirtuosoClient
 from virtuoso_bridge.virtuoso.ops import escape_skill_string
 
 IL_FILE = Path(__file__).resolve().parent.parent / "assets" / "screenshot.il"
@@ -27,7 +27,7 @@ OUTPUT_DIR = Path(__file__).resolve().parent / "output"
 
 
 def main() -> int:
-    client = BridgeClient()
+    client = VirtuosoClient.from_env()
 
     elapsed, design = timed_call(client.get_current_design)
     print(f"[get_current_design] [{format_elapsed(elapsed)}]")

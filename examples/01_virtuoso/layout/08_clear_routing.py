@@ -9,11 +9,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from _timing import decode_skill, format_elapsed, timed_call
-from virtuoso_bridge import BridgeClient
+from virtuoso_bridge import VirtuosoClient
 
 
 def main() -> int:
-    client = BridgeClient()
+    client = VirtuosoClient.from_env()
 
     elapsed, response = timed_call(
         lambda: client.layout.clear_routing(timeout=30)

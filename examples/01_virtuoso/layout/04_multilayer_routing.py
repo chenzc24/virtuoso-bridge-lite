@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from _timing import format_elapsed, timed_call
-from virtuoso_bridge import BridgeClient
+from virtuoso_bridge import VirtuosoClient
 
 LAYERS = ["M2", "M3", "M4", "M5", "M6", "M7"]
 
@@ -21,7 +21,7 @@ Y          = 3.0
 
 
 def main() -> int:
-    client = BridgeClient()
+    client = VirtuosoClient.from_env()
 
     elapsed, design = timed_call(client.get_current_design)
     print(f"[get_current_design] [{format_elapsed(elapsed)}]")

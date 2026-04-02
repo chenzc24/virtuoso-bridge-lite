@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from _timing import decode_skill, format_elapsed, timed_call
-from virtuoso_bridge import BridgeClient
+from virtuoso_bridge import VirtuosoClient
 
 
 def _format_value(value: object) -> str:
@@ -27,7 +27,7 @@ def _print_object(obj: dict[str, object]) -> None:
 
 
 def main() -> int:
-    client = BridgeClient()
+    client = VirtuosoClient.from_env()
 
     elapsed, design = timed_call(client.get_current_design)
     print(f"[get_current_design] [{format_elapsed(elapsed)}]")

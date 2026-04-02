@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
-from virtuoso_bridge import BridgeClient
+from virtuoso_bridge import VirtuosoClient
 
 LIB = "PLAYGROUND_LLM"
 CELL = "flower"
@@ -42,7 +42,7 @@ def ellipse_pts(
 
 
 def main() -> int:
-    client = BridgeClient()
+    client = VirtuosoClient.from_env()
     print(f"[Flower] Creating '{CELL}' in '{LIB}' ...")
 
     with client.layout.edit(LIB, CELL, mode="w") as layout:

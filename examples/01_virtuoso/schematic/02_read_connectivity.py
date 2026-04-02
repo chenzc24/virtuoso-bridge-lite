@@ -18,13 +18,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from _timing import decode_skill, format_elapsed, timed_call
-from virtuoso_bridge import BridgeClient
+from virtuoso_bridge import VirtuosoClient
 
 IL_FILE = Path(__file__).resolve().parent.parent / "assets" / "read_connectivity.il"
 
 
 def main() -> int:
-    client = BridgeClient()
+    client = VirtuosoClient.from_env()
 
     if len(sys.argv) >= 3:
         lib, cell = sys.argv[1], sys.argv[2]

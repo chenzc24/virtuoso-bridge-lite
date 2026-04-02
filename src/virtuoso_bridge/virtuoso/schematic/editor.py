@@ -18,7 +18,7 @@ from virtuoso_bridge.virtuoso.schematic.ops import (
 )
 
 if TYPE_CHECKING:
-    from virtuoso_bridge import BridgeClient
+    from virtuoso_bridge import VirtuosoClient
 
 def _ensure_operation_response(response: dict, *, context: str) -> None:
     if not response.get("ok", False):
@@ -33,7 +33,7 @@ class SchematicEditor:
 
     def __init__(
         self,
-        client: BridgeClient,
+        client: VirtuosoClient,
         lib: str,
         cell: str,
         view: str = "schematic",

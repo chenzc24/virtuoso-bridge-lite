@@ -7,9 +7,9 @@ Prerequisites:
 """
 import sys, pathlib; sys.path.insert(0, str(pathlib.Path(__file__).parent.parent.parent))
 from _timing import format_elapsed, timed_call
-from virtuoso_bridge import BridgeClient
+from virtuoso_bridge import VirtuosoClient
 
-client = BridgeClient()
+client = VirtuosoClient.from_env()
 
 stmts = [
     r'printf("\n\n\n\n\n==============================================\nHello, Virtuoso!\n")',
