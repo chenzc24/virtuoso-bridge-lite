@@ -60,5 +60,4 @@ The daemon runs as a **child process of Virtuoso** (via `ipcBeginProcess`).
 Virtuoso talks to it through stdin/stdout pipes. The daemon exposes this
 as a TCP socket. The SSH tunnel makes the TCP socket reachable from your machine.
 
-That's the entire bridge. The full `src/` package adds: automatic SSH management,
-file transfer, reconnection, layout/schematic editing APIs, and Spectre simulation.
+That's the entire bridge. `core/` is for understanding the mechanism — no persistent SSH, no file transfer, no auto-reconnect. For production use, install the full package (`pip install -e .`) which adds all of that.
