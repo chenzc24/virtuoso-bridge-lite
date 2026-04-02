@@ -253,19 +253,44 @@ All examples use only `analogLib` and generic layers — **no PDK required**.
 
 ```
 examples/
-  01_hello_virtuoso.py         # connect and run SKILL commands
-  02_schematic_rc_filter.py    # create an RC filter schematic (analogLib only)
-  03_layout_shapes.py          # draw M1/M2 rectangles, paths, labels
-  04_spectre_veriloga.py       # Spectre DC sim with a Verilog-A resistor
-  05_read_cellview.py          # read back instances, shapes, layers from an open design
+  01_virtuoso/
+    basic/
+      01_execute_skill.py              # run SKILL expressions
+      02_load_il.py                    # load a .il file into Virtuoso
+      03_list_library_cells.py         # enumerate libraries and cells
+    schematic/
+      01_execute_operations.py         # batch operations
+      02_read_connectivity.py          # read nets, pins, instances
+      03_create_rc.py                  # create RC circuit (analogLib)
+      05_create_cellview.py            # create empty cellview
+      06_read_instance_params.py       # read instance parameters
+      07_export_netlist_cdl.py         # export CDL netlist
+      08_rename_instance.py            # rename an instance
+      09_delete_instance.py            # delete an instance
+      10_delete_cell.py                # delete a cell
+      11_screenshot.py                 # capture schematic screenshot
+    layout/
+      02_add_polygon.py                # add polygon shapes
+      03_add_via.py                    # place vias
+      04_multilayer_routing.py         # M1/M2/M3 routing
+      05_bus_routing.py                # bus wiring patterns
+      06_read_layout.py                # read back layout geometry
+      07_screenshot.py                 # capture layout screenshot
+      08_delete_shapes_on_layer.py     # delete shapes by layer
+      09_clear_routing.py              # clear routing metals
+      10_clear_current_layout.py       # clear entire layout
+      11_delete_cell.py                # delete a cell
+      flower.py                        # fun: draw a flower in layout
+  02_spectre/
+    02_veriloga_adc_dac.py             # 4-bit ADC/DAC with pure Verilog-A
 ```
 
 ```bash
-# Try them in order:
-python examples/01_hello_virtuoso.py
-python examples/02_schematic_rc_filter.py
-python examples/03_layout_shapes.py
-python examples/04_spectre_veriloga.py
+# Quick start:
+python examples/01_virtuoso/basic/01_execute_skill.py
+python examples/01_virtuoso/schematic/03_create_rc.py
+python examples/01_virtuoso/layout/04_multilayer_routing.py
+python examples/02_spectre/02_veriloga_adc_dac.py
 ```
 
 ## Environment Variables
