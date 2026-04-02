@@ -7,7 +7,18 @@
 
 > **AI Native** — This codebase is designed to be read, modified, and operated entirely by AI agents (Claude Code, Cursor, etc.). Human developers configure `.env` and describe intent in natural language; the agent handles all code changes, SKILL generation, simulation setup, and layout construction. You should not need to edit source files manually.
 
-Lightweight Python bridge for Cadence Virtuoso. Three capabilities:
+Lightweight Python bridge for Cadence Virtuoso — **work from anywhere, on any machine**.
+
+Virtuoso runs on a remote Linux server. This bridge lets you control it from your laptop (macOS, Windows, Linux) over SSH. No VNC, no X11 forwarding, no manual terminal sessions.
+
+### Why use this?
+
+- **Remote-first** — SSH tunnel handles all communication. Your code runs locally; SKILL executes on the server.
+- **Persistent SSH** — one long-lived connection with automatic reconnection. No repeated `ssh` logins, no dropped sessions.
+- **Jump host support** — works through bastion hosts out of the box (`VB_JUMP_HOST`).
+- **AI Native** — designed for AI agents to drive. Describe what you want; the agent generates SKILL, builds layouts, runs simulations.
+
+### Three capabilities:
 
 1. **SKILL execution** — send SKILL commands to a running Virtuoso, get results back
 2. **Layout & Schematic editing** — Python API for creating/modifying cellviews
@@ -235,3 +246,23 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 pytest
 ```
+
+## Citation
+
+If you use virtuoso-bridge in academic work, please cite:
+
+```bibtex
+@article{zhang2025virtuosobridge,
+  title   = {Virtuoso-Bridge: An Agent-Native Bridge for Harness Engineering
+             in Virtuoso-Centered Workflows},
+  author  = {Zhang, Zhishuai and Li, Xintian and Sun, Nan and Jie, Lu},
+  year    = {2025}
+}
+```
+
+## Authors
+
+- **Zhishuai Zhang** — Tsinghua University
+- **Xintian Li** — Tsinghua University
+- **Nan Sun** — Tsinghua University
+- **Lu Jie** — Tsinghua University
