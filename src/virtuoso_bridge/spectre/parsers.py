@@ -262,6 +262,20 @@ def _parse_psf_swept_data(
         stripped = lines[i].strip()
         if not stripped or stripped == "END":
             break
+        # Complex value: "name" (real imag) → store magnitude
+        m_complex = re.match(r'"([^"]+)"\s+\(\s*([-+0-9.eE]+)\s+([-+0-9.eE]+)\s*\)', stripped)
+        if m_complex:
+            sig_name = m_complex.group(1)
+            try:
+                real = float(m_complex.group(2))
+                imag = float(m_complex.group(3))
+                value = (real**2 + imag**2) ** 0.5  # magnitude
+            except ValueError:
+                continue
+            if sig_name in data:
+                data[sig_name].append(value)
+            continue
+        # Scalar value: "name" value
         m = re.match(r'"([^"]+)"\s+(\S+)', stripped)
         if m:
             sig_name = m.group(1)
