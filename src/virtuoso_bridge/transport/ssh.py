@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 # ── Command log file ─────────────────────────────────────────────────────
 # All SSH/SCP/tunnel commands across all modules are logged to this file.
-_LOG_DIR = Path.home() / ".cache" / "virtuoso_bridge"
+_LOG_DIR = Path.cwd() / "logs"
 _LOG_FILE = _LOG_DIR / "commands.log"
 
 def _setup_command_log() -> None:
