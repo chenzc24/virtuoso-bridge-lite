@@ -1,1 +1,0 @@
-"""StrongArm comparator analysis assets."""

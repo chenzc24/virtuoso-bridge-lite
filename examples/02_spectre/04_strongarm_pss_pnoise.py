@@ -2,7 +2,6 @@
 """Run a single-point StrongArm comparator PSS + Pnoise simulation."""
 
 from __future__ import annotations
-
 import json
 import os
 import sys

@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Capture the current layout window and copy the screenshot back locally."""
+"""Capture a screenshot of the current Virtuoso window (layout or schematic).
+
+Usage::
+
+    python 04_screenshot.py
+
+Prerequisites:
+  - virtuoso-bridge service running (virtuoso-bridge start)
+  - A cellview open in Virtuoso
+"""
 
 from __future__ import annotations
 
@@ -24,8 +33,9 @@ def main() -> int:
     print(f"[get_current_design] [{format_elapsed(elapsed)}]")
     lib, cell, view = design
     if not lib or not cell:
-        print("No active design in Virtuoso. Open a layout first.")
+        print("No active design in Virtuoso. Open a cellview first.")
         return 1
+    print(f"Design: {lib}/{cell}/{view}")
 
     load_elapsed, load_resp = timed_call(lambda: client.load_il(IL_FILE))
     meta = load_resp.get("result", {}).get("metadata", {})
@@ -57,10 +67,10 @@ def main() -> int:
     if result.get("status") == "success":
         print(f"[download] [{format_elapsed(download_elapsed)}]")
         print(f"Local screenshot: {result.get('output')}")
-    else:
-        errors = result.get("errors") or ["download failed"]
-        print(f"[download] failed: {errors[0]}")
-    return 0
+        return 0
+    errors = result.get("errors") or ["download failed"]
+    print(f"[download] failed: {errors[0]}")
+    return 1
 
 
 if __name__ == "__main__":

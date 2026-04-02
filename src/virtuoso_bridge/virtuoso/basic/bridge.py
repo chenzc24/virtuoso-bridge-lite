@@ -90,13 +90,6 @@ def _find_ramic_bridge_daemon(python_major: int) -> Path:
     )
 
 
-def _find_ramic_bridge_files() -> tuple[Path, Path]:
-    """Locate the bundled RAMIC Bridge daemon script (Py2.7) and SKILL IL file.
-
-    Kept for backward compatibility. New code should use
-    ``_find_ramic_bridge_daemon`` + ``_find_ramic_bridge_il``.
-    """
-    return _find_ramic_bridge_daemon(2), _find_ramic_bridge_il()
 
 def _prepare_ramic_bridge_il(il_path: Path, port: int) -> str:
     """Read ramic_bridge.il and replace RBPort with the specified port."""

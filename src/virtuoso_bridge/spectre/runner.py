@@ -113,21 +113,6 @@ def _build_spectre_argv(
     argv.append("+logstatus")
     return argv
 
-def _find_spectre_csh_template() -> Path | None:
-    """Return the bundled spectre_sim.csh path, or None if not found."""
-    try:
-        resources = importlib.resources.files("virtuoso_bridge.spectre.resources")
-        ref = resources / "spectre_sim.csh"
-        with importlib.resources.as_file(ref) as p:
-            if p.is_file():
-                return p
-    except Exception:  # noqa: BLE001
-        pass
-    return None
-
-def get_spectre_csh_template_path() -> Path | None:
-    """Public path to bundled ``spectre_sim.csh`` (same as internal template lookup)."""
-    return _find_spectre_csh_template()
 
 # ---------------------------------------------------------------------------
 # Local execution
@@ -218,13 +203,10 @@ def _run_spectre_remote(
     keep_remote_files: bool = False,
 ) -> _SpectreRunResult:
     """Run Spectre on a remote host: upload netlist, run, download results."""
-    template = _find_spectre_csh_template()
     run_id = uuid.uuid4().hex[:8]
     remote_dir = f"{remote_work_dir}/{run_id}"
 
     uploads: list[tuple[Path, str]] = []
-    if template and template.exists():
-        uploads.append((template, f"{remote_dir}/spectre_sim.csh"))
     uploads.append((netlist, f"{remote_dir}/{netlist.name}"))
     for inc_file in params.get("include_files", []):
         inc_path = Path(inc_file).resolve()
@@ -245,44 +227,25 @@ def _run_spectre_remote(
     logger.info("[remote] %s", spectre_command)
     print(f"[Command] {spectre_command}")
     print("[Exec] Remote simulation running...")
-    if template and template.exists():
-        spectre_bin = spectre_argv[0]
-        wrapper_args = " ".join(
-            shlex.quote(arg)
-            for arg in spectre_argv[1:]
-            if arg != f"{remote_dir}/{netlist.name}"
-        )
-        # Export env vars so csh inherits them as defined environment variables.
-        # Avoid ${VAR:-default} syntax — the remote /bin/sh may be old or csh
-        # may be the login shell used by the _run_command_once fallback.
-        _cadence_val = shlex.quote(os.environ.get("VB_CADENCE_CSHRC", ""))
-        _mentor_val = shlex.quote(os.environ.get("VB_MENTOR_CSHRC", ""))
-        env_exports: list[str] = [
-            # Always set HOSTNAME via backtick (csh + sh compatible)
-            'HOSTNAME=`hostname 2>/dev/null || echo localhost`; export HOSTNAME',
-            # Preserve existing values; expanding $VAR in double-quotes gives ""
-            # if unset (POSIX sh guarantee — no error, unlike csh)
-            'export LD_LIBRARY_PATH="$LD_LIBRARY_PATH"',
-            'export MANPATH="$MANPATH"',
-            'export LM_LICENSE_FILE="$LM_LICENSE_FILE"',
-            # Set these unconditionally from local env / hardcoded defaults
-            f'export VB_CADENCE_CSHRC={_cadence_val}',
-            f'export VB_MENTOR_CSHRC={_mentor_val}',
-        ]
-        env_prefix = " && ".join(env_exports) + " && "
-        exec_cmd = (
-            f"{env_prefix}"
-            f"mkdir -p {shlex.quote(remote_raw_dir)} && "
-            f"sed -i 's/\\r$//' {remote_dir}/spectre_sim.csh && "
-            f"chmod +x {remote_dir}/spectre_sim.csh && "
-            f"csh {shlex.quote(f'{remote_dir}/spectre_sim.csh')} "
-            f"{shlex.quote(f'{remote_dir}/{netlist.name}')} "
-            f"{shlex.quote(spectre_bin)}"
-        ).rstrip()
-        if wrapper_args:
-            exec_cmd = f"{exec_cmd} {wrapper_args}"
-    else:
-        exec_cmd = f"cd {shlex.quote(remote_dir)} && {spectre_command}"
+
+    # Source Cadence/Mentor cshrc in csh, then exec spectre — one command, no wrapper file
+    _cadence_val = os.environ.get("VB_CADENCE_CSHRC", "").strip()
+    _mentor_val = os.environ.get("VB_MENTOR_CSHRC", "").strip()
+    source_lines: list[str] = []
+    for cshrc in (_cadence_val, _mentor_val):
+        if cshrc:
+            source_lines.append(f"source {shlex.quote(cshrc)}")
+    csh_body = "; ".join(source_lines) if source_lines else ":"
+    # Export HOSTNAME & LD_LIBRARY_PATH so csh inherits them (.cshrc may reference $HOSTNAME)
+    env_setup = (
+        'HOSTNAME=`hostname 2>/dev/null || echo localhost`; export HOSTNAME && '
+        'export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}" && '
+    )
+    exec_cmd = (
+        f"{env_setup}"
+        f"mkdir -p {shlex.quote(remote_raw_dir)} && "
+        f"csh -c {shlex.quote(f'{csh_body}; {spectre_command}')}"
+    )
 
     logger.info("[remote] %s", exec_cmd)
     task = run_remote_task(
@@ -531,6 +494,62 @@ class SpectreSimulator:
         if self._remote_host:
             return self._run_remote(netlist, params)
         return self._run_local(netlist)
+
+    def check_license(self) -> dict[str, Any]:
+        """Check Spectre license availability on the remote host.
+
+        Returns a dict with keys: ok, spectre_path, version, licenses.
+        """
+        if not self._remote_host:
+            return {"ok": False, "error": "No remote host configured"}
+
+        runner = self._get_ssh_runner()
+
+        # Build env setup: source cshrc in csh, then check spectre
+        cadence_cshrc = shlex.quote(os.environ.get("VB_CADENCE_CSHRC", ""))
+        check_script = (
+            'HOSTNAME=`hostname 2>/dev/null || echo localhost`; export HOSTNAME && '
+            f'export VB_CADENCE_CSHRC={cadence_cshrc} && '
+            # Source Cadence env via csh, then run checks in sh
+            f'eval "$(csh -c \'source {cadence_cshrc}; env\' 2>/dev/null '
+            f'| grep -E \"^(PATH|LM_LICENSE_FILE|CDS)=\" '
+            f'| sed \'s/^/export /\')" 2>/dev/null; '
+            # 1. Which spectre
+            'echo "SPECTRE_PATH=$(which spectre 2>/dev/null || echo NOTFOUND)"; '
+            # 2. Spectre version
+            'spectre -V 2>&1 | head -1; '
+            # 3. lmstat for Spectre-related features
+            'lmstat -a 2>/dev/null | grep -iE "spectre|Virtuoso_Multi_mode" | head -20'
+        )
+
+        result = runner.run_command(check_script, timeout=30)
+        stdout = result.stdout.strip()
+        stderr = result.stderr.strip()
+
+        info: dict[str, Any] = {
+            "ok": False,
+            "spectre_path": None,
+            "version": None,
+            "raw_output": stdout,
+            "stderr": stderr,
+            "licenses": [],
+        }
+
+        for line in stdout.splitlines():
+            line = line.strip()
+            if line.startswith("SPECTRE_PATH="):
+                path = line.split("=", 1)[1]
+                if path != "NOTFOUND":
+                    info["spectre_path"] = path
+            elif line.startswith("@(#)$CDS:"):
+                info["version"] = line
+            elif "Users of" in line:
+                info["licenses"].append(line)
+
+        if info["spectre_path"]:
+            info["ok"] = True
+
+        return info
 
     # -- private helpers ----------------------------------------------------
 

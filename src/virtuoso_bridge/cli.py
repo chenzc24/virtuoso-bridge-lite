@@ -418,6 +418,44 @@ def _service_running(snapshot: dict) -> bool:
     state = ((snapshot.get("service") or {}).get("state") or {})
     return state.get("status") in {"running", "degraded", "starting"}
 
+def _print_spectre_license_status() -> None:
+    """Check and print Spectre license availability on the remote host."""
+    cadence_cshrc = os.getenv("VB_CADENCE_CSHRC", "").strip()
+    if not cadence_cshrc:
+        print("\n------------------------------------------------------------------------")
+        print("[spectre license]")
+        print("VB_CADENCE_CSHRC is not set — skipping Spectre license check.")
+        print("Set it in .env to enable: VB_CADENCE_CSHRC=/path/to/cshrc.cadence")
+        return
+
+    try:
+        from virtuoso_bridge.spectre.runner import SpectreSimulator
+
+        sim = SpectreSimulator.from_env()
+        info = sim.check_license()
+    except Exception as exc:  # noqa: BLE001
+        print(f"\n[spectre license] check failed: {exc}")
+        return
+
+    print("\n------------------------------------------------------------------------")
+    print("[spectre license]")
+    if not info.get("ok"):
+        print(f"spectre: [NOT FOUND] — {info.get('error', 'spectre not in PATH after sourcing VB_CADENCE_CSHRC')}")
+        return
+
+    print(f"spectre: [{info['spectre_path']}]")
+    if info.get("version"):
+        print(f"version: [{info['version']}]")
+
+    licenses = info.get("licenses", [])
+    if licenses:
+        for line in licenses:
+            # Parse "Users of X:  (Total of N licenses issued;  Total of M licenses in use)"
+            print(f"  {line}")
+    else:
+        print("  (no license info from lmstat)")
+
+
 def cli_status() -> int:
     snapshot = collect_runtime_status(load_env=True)
     service_state = ((snapshot.get("service") or {}).get("state") or {})
@@ -449,6 +487,8 @@ def cli_status() -> int:
             print(f"[ciw_print] warning: {result.get('errors')}")
             return 0
         print("[ciw_print] success")
+
+    _print_spectre_license_status()
     return 0
 
 def build_parser() -> argparse.ArgumentParser:

@@ -27,7 +27,7 @@
 simulator lang=spectre
 global 0
 parameters VDD=0.9 Vcm=0.45 Vid=1m f=1G
-include "/home/process/tsmc28n/PDK_mmWave/iPDK_CRN28HPC+ULL_v1.8_2p2a_20190531/tsmcN28/../models/spectre/toplevel.scs" section=TOP_TT
+include "/home/process/tsmc28n/PDK_mmWave/iPDK_CRN28HPC+ULL_v1.8_2p2a_20190531/models/spectre/toplevel.scs" section=TOP_TT
 
 // ── Subcircuit ─────────────────────────────────────────────────────────────
 // Identical transistors to tb_cmp_pss_pnoise.scs (original Virtuoso export)

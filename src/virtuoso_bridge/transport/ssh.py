@@ -21,7 +21,15 @@ logger = logging.getLogger(__name__)
 
 # ── Command log file ─────────────────────────────────────────────────────
 # All SSH/SCP/tunnel commands across all modules are logged to this file.
-_LOG_DIR = Path.cwd() / "logs"
+def _project_log_dir() -> Path:
+    """Find project root (pyproject.toml), fall back to ~/.cache/virtuoso_bridge."""
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "pyproject.toml").is_file():
+            return parent / "logs"
+    return Path.home() / ".cache" / "virtuoso_bridge"
+
+_LOG_DIR = _project_log_dir()
 _LOG_FILE = _LOG_DIR / "commands.log"
 
 def _setup_command_log() -> None:

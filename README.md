@@ -66,36 +66,10 @@ print(result)  # {'ok': True, 'result': {'output': '3', ...}}
 
 Done.
 
-### SSH not working?
+### Prerequisites
 
-**Rule: if `ssh my-server` works in your terminal, the bridge will work.** Fix SSH first, then run `virtuoso-bridge start`.
-
-### SSH Prerequisites
-
-Before using virtuoso-bridge, ensure passwordless SSH login is configured:
-
-```bash
-# 1. Generate a key pair (skip if you already have one)
-ssh-keygen -t ed25519
-
-# 2. Copy your public key to the remote server
-ssh-copy-id my-server
-
-# 3. (Optional) If using a jump host, copy the key there too
-ssh-copy-id jump-host
-
-# 4. Verify — this should log in without asking for a password
-ssh my-server
-```
-
-If your setup requires a jump host or non-default port, configure them in `~/.ssh/config`:
-
-```
-Host my-server
-    HostName 10.0.0.42
-    User your_username
-    ProxyJump jump-host    # if needed
-```
+1. **SSH**: `ssh my-server` must work in your terminal without a password prompt. Fix SSH first if it doesn't.
+2. **Virtuoso**: a Virtuoso process must be running on the remote machine.
 
 ## What You Can Do
 
