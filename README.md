@@ -249,19 +249,22 @@ skills/spectre/
 
 ## Examples
 
+All examples use only `analogLib` and generic layers — **no PDK required**.
+
 ```
 examples/
   01_hello_virtuoso.py         # connect and run SKILL commands
-  02_schematic_inverter.py     # create a CMOS inverter schematic from scratch
-  03_layout_ring_oscillator.py # place instances in a row with M1 wiring
-  04_spectre_veriloga.py       # Spectre DC sim with a Verilog-A resistor (no PDK needed)
+  02_schematic_rc_filter.py    # create an RC filter schematic (analogLib only)
+  03_layout_shapes.py          # draw M1/M2 rectangles, paths, labels
+  04_spectre_veriloga.py       # Spectre DC sim with a Verilog-A resistor
   05_read_cellview.py          # read back instances, shapes, layers from an open design
 ```
 
 ```bash
 # Try them in order:
 python examples/01_hello_virtuoso.py
-python examples/02_schematic_inverter.py
+python examples/02_schematic_rc_filter.py
+python examples/03_layout_shapes.py
 python examples/04_spectre_veriloga.py
 ```
 
