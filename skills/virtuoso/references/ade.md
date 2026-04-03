@@ -42,6 +42,40 @@ r = client.execute_skill('maeRunSimulation()')
 r = client.execute_skill('adeBridgeRunSim()')
 ```
 
+## Maestro Session Management
+
+| Function | Purpose |
+|----------|---------|
+| `maeOpenSetup(lib cell "maestro")` | Open maestro view directly (simpler than `deOpenCellView`) |
+| `maeGetSetup(?lib l ?cell c ?view "maestro")` | Get complete setup details of a maestro cellview |
+| `maeWaitUntilDone('All)` | Block until all simulations complete (critical — `maeRunSimulation` is async) |
+| `maeExportOutputView(?fileName path ?view viewType)` | Export results to CSV |
+
+### Synchronous Simulation Workflow
+
+```scheme
+maeOpenSetup("myLib" "myCell" "maestro")
+maeRunSimulation()
+maeWaitUntilDone('All)
+maeExportOutputView(?fileName "/tmp/results.csv" ?view "Detail-Transpose")
+```
+
+### Headless Execution
+
+Maestro scripts can run without GUI via `virtuoso -replay`:
+
+```bash
+# test.il:
+# maeOpenSetup("myLib" "myCell" "maestro")
+# maeRunSimulation()
+# maeWaitUntilDone('All)
+# maeExportOutputView()
+
+virtuoso -replay test.il -log myLog1 -report
+```
+
+**Note:** `mae`-prefixed functions operate on the **complete cellview** (all tests), not just the currently visible ADE window.
+
 ## Known Blockers
 
 - **"Specify history name" dialog**: blocks the SKILL execution channel. All subsequent `execute_skill()` calls timeout until the dialog is dismissed manually. Disable the prompt in ADE preferences before running via bridge.
@@ -143,8 +177,95 @@ client.execute_skill('adeBridgeSetVar("VDD" "0.9")')
 | `asiGetResultsDir(sess)` | Get results directory path |
 | `maeRunSimulation()` | Trigger Assembler simulation |
 
+## Creating Maestro View from SKILL
+
+A maestro view can be created programmatically without the GUI. Requires an open schematic cellview.
+
+### Core API
+
+| Function | Purpose |
+|----------|---------|
+| `deOpenCellView(lib cell "maestro" "maestro" nil "w")` | Create new maestro view (returns cellview, access session via `cv~>davSession`) |
+| `deOpenCellView(lib cell "maestro" "maestro" nil "r")` | Open existing maestro view (read mode) |
+| `maeCreateTest(name ?lib l ?cell c ?view "schematic" ?simulator "spectre" ?session ses)` | Add a test pointing to a schematic |
+| `maeSetAnalysis(test analysis ?enable t ?options ...)` | Configure analysis (tran, dc, ac, etc.) |
+| `maeSetEnvOption(test ?options ...)` | Set environment options (model files, etc.) |
+| `maeAddOutput(name test ?outputType type ?signalName sig)` | Add waveform output (`outputType`: "net", "point") |
+| `maeAddOutput(name test ?outputType "point" ?expr expr)` | Add expression output (e.g. `ymax(VT("/OUT"))`) |
+| `maeSetVar(name value ?session ses)` | Set global design variable |
+| `maeSetCorner(name ?session ses)` | Create a corner |
+| `maeSetVar(name values ?typeName "corner" ?typeValue '("cornerName") ?session ses)` | Set per-corner variable (space-separated values) |
+| `maeSaveSetup(?lib l ?cell c ?view "maestro" ?session ses)` | Save the maestro setup |
+| `maeRunSimulation(?session ses)` | Run simulation |
+
+### Corner Model File Setup
+
+```scheme
+x_mainSDB = axlGetMainSetupDB(session)
+cornerHandle = axlGetCorner(x_mainSDB "cornerName")
+modelHandle = axlPutModel(cornerHandle "modelName")
+axlSetModelFile(modelHandle "/path/to/model.scs")
+axlSetModelSection(modelHandle "tt")
+```
+
+### Check If Maestro View Already Exists
+
+```scheme
+member("maestro" dbAllCellViews(ddGetObj(libName) cellName))
+```
+
+### Analysis Options Examples
+
+```scheme
+; Transient
+maeSetAnalysis("TRAN" "tran" ?enable t ?options `(("stop" "60n") ("errpreset" "conservative")))
+
+; DC with save operating point
+maeSetAnalysis("TRAN" "dc" ?enable t ?options '(("saveOppoint" t)))
+```
+
+### Full Example (SKILL)
+
+```scheme
+cv = geGetEditCellView()
+libName = cv~>libName
+cellName = cv~>cellName
+
+maeCV = deOpenCellView(libName cellName "maestro" "maestro" nil "w")
+ses1 = maeCV~>davSession
+
+; Add test with tran + dc
+maeCreateTest("TRAN" ?lib libName ?cell cellName ?view "schematic" ?simulator "spectre" ?session ses1)
+maeSetAnalysis("TRAN" "tran" ?enable t ?options `(("stop" "60n") ("errpreset" "conservative")))
+maeSetAnalysis("TRAN" "dc" ?enable t ?options '(("saveOppoint" t)))
+maeSetEnvOption("TRAN" ?options '(("modelFiles" (("/path/to/model.scs" "tt")))))
+
+; Add outputs
+maeAddOutput("OutPlot" "TRAN" ?outputType "net" ?signalName "/OUT")
+maeAddOutput("maxOut" "TRAN" ?outputType "point" ?expr "ymax(VT(\"/OUT\"))")
+
+; Global variables
+maeSetVar("vdc1" "1" ?session ses1)
+
+; Corner
+maeSetCorner("myCorner" ?session ses1)
+maeSetVar("vdd" "1.2 1.4" ?typeName "corner" ?typeValue '("myCorner") ?session ses1)
+maeSetVar("temperature" "50 100" ?typeName "corner" ?typeValue '("myCorner") ?session ses1)
+
+; Corner model file
+x_mainSDB = axlGetMainSetupDB(ses1)
+cornerHandle = axlGetCorner(x_mainSDB "myCorner")
+modelHandle = axlPutModel(cornerHandle "model.scs")
+axlSetModelFile(modelHandle "/path/to/model.scs")
+axlSetModelSection(modelHandle "fs")
+
+; Save
+maeSaveSetup(?lib libName ?cell cellName ?view "maestro" ?session ses1)
+```
+
 ## Examples
 
 - `examples/01_virtuoso/ade/01_list_design_vars.py`
 - `examples/01_virtuoso/ade/02_get_set_var.py`
 - `examples/01_virtuoso/ade/03_run_simulation.py`
+- `examples/01_virtuoso/ade/04_create_maestro.py`
