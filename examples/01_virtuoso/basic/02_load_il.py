@@ -15,6 +15,8 @@ SONNET_IL = Path(__file__).resolve().parent.parent / "assets" / "sonnet18.il"
 
 client = VirtuosoClient.from_env()
 result = client.load_il(SONNET_IL)
+
+
 print_elapsed("load_il", result.execution_time)
 upload_tag = "uploaded" if result.metadata.get("uploaded") else "cache hit"
 print(f"[{upload_tag}]")

@@ -302,7 +302,7 @@ class SSHClient:
             "-o", "StrictHostKeyChecking=no",
             "-o", "ExitOnForwardFailure=yes",
             "-N",
-            "-L", f"{port}:localhost:{port}",
+            "-L", f"{port}:127.0.0.1:{port}",
         ]
         if self._jump_host:
             jump_user = self._jump_user or self._remote_user
