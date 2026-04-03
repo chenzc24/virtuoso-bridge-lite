@@ -50,7 +50,7 @@ The question is therefore not \emph{how} to execute SKILL from Python, since tha
 
 Virtuoso-Bridge takes a different approach. It builds a \emph{harness}, a structured execution boundary that packages bridge lifecycle, remote transport, editing operations, and artifact return into a single project-local system. We use the term ``harness'' in the test-harness sense, referring to a reusable boundary that wraps the system under control and exposes it through a stable interface. The harness is designed for four properties that interactive RPC does not address. First, it provides transparent remote access through SSH tunnels. Second, it supports multi-level programmability from raw SKILL to high-level Python APIs. Third, it enables multimodal feedback including visual verification of layout and schematic edits. Fourth, it offers agent-native lifecycle management with persistent connections, skill files, and command logging.
 
-This work was motivated by our experience building AMS-IO-Agent~\cite{amsioagent}, an LLM-based agent for I/O ring design that was validated in a 28nm CMOS tape-out. In that project, the need for a stable, remote-capable bridge between the agent and Virtuoso became the central infrastructure challenge. Virtuoso-Bridge is the distilled and generalized result of that effort.
+This work was motivated by our experience building AMS-IO-Agent~\cite{amsioagent}, an LLM-based agent for I/O ring design that was validated in a CMOS tape-out. In that project, the need for a stable, remote-capable bridge between the agent and Virtuoso became the central infrastructure challenge. Virtuoso-Bridge is the distilled and generalized result of that effort.
 
 %═══════════════════════════════════════════════════════════════════════
 \section{Architectural Principle}
@@ -171,7 +171,7 @@ The open-source version removes all process-specific paths and credentials while
 \section{Conclusion}
 %═══════════════════════════════════════════════════════════════════════
 
-The contribution of Virtuoso-Bridge is not a new execution mechanism. The underlying SKILL IPC facility is standard Cadence infrastructure. The contribution is a principled system boundary built around it, comprising decoupled transport and execution layers, three levels of programmability, multimodal feedback for visual verification, and agent-native lifecycle management. This boundary makes it practical to use Virtuoso as a tool-use target for coding agents in remote AMS design environments, as demonstrated in a 28nm tape-out workflow.
+The contribution of Virtuoso-Bridge is not a new execution mechanism. The underlying SKILL IPC facility is standard Cadence infrastructure. The contribution is a principled system boundary built around it, comprising decoupled transport and execution layers, three levels of programmability, multimodal feedback for visual verification, and agent-native lifecycle management. This boundary makes it practical to use Virtuoso as a tool-use target for coding agents in remote AMS design environments, as demonstrated in a tape-out workflow.
 
 \begin{thebibliography}{2}
 

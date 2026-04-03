@@ -1,12 +1,12 @@
 \begin{tikzpicture}[
   font=\small,
-  box/.style={draw, rounded corners=3pt, minimum height=0.9cm, inner sep=5pt, align=center, text width=2.8cm},
+  box/.style={draw, rounded corners=3pt, minimum height=0.9cm, inner sep=5pt, align=center, text width=2.6cm},
   userbox/.style={box, fill=yellow!25, draw=yellow!60!black},
   clientbox/.style={box, fill=blue!15, draw=blue!50!black},
   sshbox/.style={box, fill=orange!20, draw=orange!60!black},
   daemonbox/.style={box, fill=violet!15, draw=violet!50!black},
   virtbox/.style={box, fill=green!15, draw=green!50!black},
-  graybox/.style={box, draw=gray!50, fill=gray!5, dashed, text=gray},
+  graybox/.style={box, draw=gray!50, fill=gray!5, dashed, text=gray, text width=1.6cm, minimum height=0.7cm},
   region/.style={draw, rounded corners=5pt, inner sep=10pt},
   localregion/.style={region, fill=blue!3, draw=blue!20},
   remoteregion/.style={region, fill=orange!3, draw=orange!20},
@@ -20,79 +20,90 @@
 ]
 
 % ====== REMOTE MODE ======
-\node[modetitle] at (3.8, 8.8) {REMOTE MODE};
-\draw[thick, gray!40] (-1.2, 8.5) -- (8.8, 8.5);
+\node[modetitle] at (4.2, 9.6) {REMOTE MODE};
+\draw[thick, gray!40] (-1.5, 9.3) -- (10.0, 9.3);
 
 % Local machine region
-\node[localregion, fit={(-0.8,4.2)(-0.8,7.9)(3.2,7.9)}, label={[sectiontitle]above:USER LOCAL MACHINE}] (localbox) {};
+\node[localregion, minimum width=4.2cm, minimum height=5.0cm] (localbox) at (1.2, 6.5) {};
+\node[sectiontitle] at (1.2, 8.8) {USER LOCAL MACHINE};
 
 % Remote server region
-\node[remoteregion, fit={(5.0,4.2)(5.0,7.9)(8.5,7.9)}, label={[sectiontitle]above:REMOTE VIRTUOSO SERVER}] (remotebox) {};
+\node[remoteregion, minimum width=4.2cm, minimum height=5.0cm] (remotebox) at (7.8, 6.5) {};
+\node[sectiontitle] at (7.8, 8.8) {REMOTE VIRTUOSO SERVER};
 
 % Local components
-\node[sshbox] (ssh) at (1.2, 7.2) {SSHClient\\[-2pt]{\scriptsize (SFTP/SCP File Transfer)}};
-\node[userbox] (user) at (1.2, 6.0) {Python\\User Script};
-\node[clientbox] (vc) at (1.2, 4.8) {VirtuosoClient};
+\node[sshbox] (ssh) at (1.2, 7.8) {SSHClient\\[-2pt]{\scriptsize (File Transfer)}};
+\node[userbox] (user) at (1.2, 6.5) {Python\\User Script};
+\node[clientbox] (vc) at (1.2, 5.2) {VirtuosoClient};
 
 % Remote components
-\node[daemonbox] (daemon) at (6.8, 7.2) {Remote Daemon\\[-2pt]{\scriptsize (SSH File Access)}};
-\node[virtbox] (virt) at (6.8, 5.0) {Virtuoso,\\evalstring()};
+\node[daemonbox] (daemon) at (7.8, 7.8) {Remote Daemon};
+\node[virtbox] (virt) at (7.8, 5.2) {Virtuoso,\\evalstring()};
 
 % SSH tunnel cloud
-\node[draw, rounded corners=8pt, fill=cyan!8, draw=cyan!40, minimum width=1.6cm, minimum height=1.0cm, align=center, font=\scriptsize\bfseries, text=cyan!60!black] (cloud) at (4.0, 7.2) {NETWORK /\\SSH TUNNEL};
+\node[draw, rounded corners=8pt, fill=cyan!8, draw=cyan!40, minimum width=1.8cm, minimum height=1.0cm, align=center, font=\scriptsize\bfseries, text=cyan!60!black] (cloud) at (4.5, 7.8) {NETWORK /\\SSH TUNNEL};
 
-% Arrows - SSH path
+% Arrows - SSH path (file transfer + tunnel)
 \draw[arr, orange!70!black, very thick] (ssh.east) -- (cloud.west);
 \draw[arr, orange!70!black, very thick] (cloud.east) -- (daemon.west);
-\draw[darr, orange!70!black] (ssh.south) -- node[right, note] {SSH\\Tunneling} (vc.north east);
 
-% Arrow - TCP data flow
-\draw[arr, blue!60!black] (vc.east) -- node[below, note] {localhost:port} ++(1.2,0) -- ++(0,0) |- (daemon.south west);
+% Dashed line SSH tunneling label
+\draw[darr, orange!70!black] (ssh.south) -- (vc.north);
+\node[note, text=orange!70!black] at (2.6, 6.5) {SSH\\tunneling};
 
-% Arrow - IPC pipe
-\draw[bigarr] (daemon.south) -- node[right, note, text width=1.5cm] {stdin/stdout\\IPC pipe\\(SKILL)} (virt.north);
-\draw[bigarr] (virt.north east) -- ++(0, 0.3) -- (daemon.south east);
+% Arrow - TCP data flow (VirtuosoClient to daemon via tunnel)
+\draw[arr, blue!60!black] (vc.east) -- node[below, note] {\texttt{localhost:port}} (4.5, 5.2) -- (daemon.south west);
+
+% Arrow - IPC pipe (bidirectional)
+\draw[bigarr] ([xshift=-2mm]daemon.south) -- ([xshift=-2mm]virt.north);
+\draw[bigarr] ([xshift=2mm]virt.north) -- ([xshift=2mm]daemon.south);
+\node[note, text width=1.4cm] at (9.6, 6.5) {stdin/stdout\\IPC pipe\\(SKILL)};
 
 % Upload daemon label
-\draw[darr, gray!50] (ssh.south east) -- ++(2.0, -1.5) node[right, note] {Upload Daemon\\Script};
+\node[note, text=orange!60!black] at (4.5, 4.5) {Upload Daemon Script};
+\draw[darr, orange!50!black] (3.0, 4.7) -- (6.0, 4.7);
 
 % Bottom label
-\node[note] at (3.8, 3.8) {\footnotesize Transparently handled by SSHClient / Remote Daemon (Optional)};
+\node[note, font=\footnotesize] at (4.5, 3.7) {Transparently handled by SSHClient / Remote Daemon (Optional)};
 
 % ====== LOCAL MODE ======
-\node[modetitle] at (3.8, 2.8) {LOCAL MODE};
-\draw[thick, gray!40] (-1.2, 2.5) -- (8.8, 2.5);
+\node[modetitle] at (4.2, 3.0) {LOCAL MODE};
+\draw[thick, gray!40] (-1.5, 2.7) -- (10.0, 2.7);
 
 % Single machine region
-\node[singleregion, fit={(-0.3,-1.0)(8.0,2.0)}, label={[sectiontitle]above:SINGLE LOCAL MACHINE}] {};
+\node[singleregion, minimum width=10.5cm, minimum height=3.0cm] at (4.2, 0.8) {};
+\node[sectiontitle] at (4.2, 2.2) {SINGLE LOCAL MACHINE};
 
 % Local mode components
-\node[userbox, text width=1.8cm] (luser) at (0.5, 1.0) {Python\\User Script};
-\node[clientbox, text width=2.2cm] (lvc) at (3.0, 1.0) {VirtuosoClient};
-\node[daemonbox, text width=2.2cm] (ldaemon) at (6.5, 1.0) {RAMIC daemon};
-\node[virtbox, text width=2.2cm] (lvirt) at (6.5, -0.5) {Virtuoso,\\evalstring()};
+\node[userbox, text width=1.6cm] (luser) at (0.3, 1.0) {Python\\User Script};
+\node[clientbox, text width=2.0cm] (lvc) at (2.8, 1.0) {VirtuosoClient};
+\node[daemonbox, text width=2.0cm] (ldaemon) at (6.2, 1.0) {RAMIC daemon};
+\node[virtbox, text width=2.0cm] (lvirt) at (8.5, 1.0) {Virtuoso,\\evalstring()};
 
 % Arrows
 \draw[arr] (luser.east) -- (lvc.west);
-\draw[arr, blue!60!black] (lvc.east) -- node[below, note] {localhost:port} (ldaemon.west);
 
-% IPC
-\draw[bigarr] (ldaemon.south) -- node[right, note, text width=1.3cm] {stdin/stdout\\IPC pipe\\(SKILL)} (lvirt.north);
-\draw[bigarr] (lvirt.north east) -- ++(0, 0.2) -- (ldaemon.south east);
+% Orange dot for localhost:port
+\fill[orange!80!black] (4.5, 1.0) circle (3pt);
+\draw[arr, blue!60!black] (lvc.east) -- (4.4, 1.0);
+\draw[arr] (4.6, 1.0) -- (ldaemon.west);
+\node[note] at (4.5, 0.5) {\texttt{localhost:port}};
 
-% Orange dot
-\fill[orange!80!black] (4.7, 1.0) circle (3pt);
+% IPC arrows
+\draw[bigarr] ([xshift=-1.5mm]ldaemon.east) -- ([xshift=-1.5mm]lvirt.west);
+\draw[bigarr] ([xshift=1.5mm]lvirt.west) -- ([xshift=1.5mm]ldaemon.east);
+\node[note, text width=1.2cm] at (7.3, 1.9) {stdin/stdout\\IPC pipe\\(SKILL)};
 
 % Not used labels
-\node[graybox, text width=1.8cm] at (0.5, -0.2) {\scriptsize [SSHClient\\NOT USED]};
-\node[graybox, text width=1.8cm] at (0.5, -1.2) {\scriptsize [.env config\\NOT USED]};
-\node[font=\large, text=red!70!black] at (1.6, -1.2) {\texttimes};
+\node[graybox] at (0.3, -0.3) {\scriptsize SSHClient\\NOT USED};
+\node[graybox] at (2.5, -0.3) {\scriptsize .env config\\NOT USED};
+\node[font=\large, text=red!70!black] at (3.5, -0.3) {\texttimes};
 
 % load label
-\node[draw, rounded corners=2pt, fill=green!8, draw=green!30, font=\scriptsize, align=center] at (4.5, -0.5) {load("ramic\_bridge.il")\\in Virtuoso CIW};
+\node[draw, rounded corners=2pt, fill=green!8, draw=green!30, font=\scriptsize, align=center] at (5.0, -0.3) {load("ramic\_bridge.il")\\in Virtuoso CIW};
 
 % ====== COLOR LEGEND ======
-\node[font=\scriptsize, anchor=west] at (-0.5, -2.0) {%
+\node[font=\scriptsize, anchor=west] at (-0.8, -1.3) {%
 \colorbox{yellow!25}{\strut Yellow} = User Script \quad
 \colorbox{blue!15}{\strut Blue} = VirtuosoClient \quad
 \colorbox{orange!20}{\strut Orange} = SSHClient \quad
