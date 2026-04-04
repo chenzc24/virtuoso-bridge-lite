@@ -39,6 +39,45 @@ ses = maeOpenSetup("myLib" "myCell" "maestro" ?mode "a")
 
 **`?session` is a string.** Pass it as `?session "fnxSession4"`, not as an unquoted variable.
 
+### Reading Existing Setup
+
+Read the full configuration of an open Maestro session. **Must open GUI first** via `deOpenCellView`, then call `maeGetSetup()` without `?typeName` to get the test list.
+
+```scheme
+; Test list
+maeGetSetup()                              ; => ("tb_cmp_SA")
+
+; Enabled analyses for a test
+maeGetEnabledAnalysis("tb_cmp_SA")         ; => ("pss" "pnoise")
+
+; Analysis parameters (returns all option key-value pairs)
+maeGetAnalysis("tb_cmp_SA" "pss")
+; => (("fund" "1G") ("harms" "10") ("errpreset" "conservative") ...)
+
+maeGetAnalysis("tb_cmp_SA" "pnoise")
+; => (("fund" "1G") ("start" "0") ("stop" "500M") ...)
+
+; Design variables (use asi* API, not maeGetSetup)
+asiGetDesignVarList(asiGetCurrentSession())
+; => (("VDD" "0.81:0.09:0.99") ("Vcm" "0.475") ...)
+
+; Outputs — returns sevOutputStruct list, iterate with nth/~>name
+maeGetTestOutputs("tb_cmp_SA")
+; Access: nth(0 outputs)~>name, ~>outputType, ~>signalName, ~>expr
+
+; Simulator name
+maeGetEnvOption("tb_cmp_SA" ?option "simExecName")  ; => "spectre"
+
+; Model files
+maeGetEnvOption("tb_cmp_SA" ?option "modelFiles")
+; => (("/path/to/model.scs" "tt") ("/path/to/model.scs" "ss") ...)
+
+; Run mode
+maeGetCurrentRunMode()  ; => "Single Run, Sweeps and Corners"
+```
+
+**Note:** `maeGetSetup(?typeName "globalVar")` may return nil even when variables exist. Use `asiGetDesignVarList(asiGetCurrentSession())` instead to reliably read design variables.
+
 ### Creating Tests
 
 ```scheme
@@ -212,9 +251,9 @@ client.execute_skill(f'maeSaveSetup(?lib "{lib}" ?cell "{cell}" ?view "maestro")
 Key points:
 - **Edit mode is exclusive** — only one session can have a cellview in edit mode. Must close all existing sessions first via `maeCloseSession(?forceClose t)`.
 - `deOpenCellView` opens the GUI window (read mode initially).
-- `maeMakeEditable()` switches to edit mode (required before restoring).
+- `maeMakeEditable()` switches to edit mode — **call immediately after opening**, before any modifications. Otherwise closing the window triggers a "save changes?" dialog that deadlocks the SKILL channel (read-only can't save, dialog blocks everything).
 - `maeRestoreHistory("Interactive.N")` sets the history as active setup, making results visible in the GUI.
-- `maeSaveSetup` persists the state.
+- `maeSaveSetup` persists the state — **always save before closing**.
 - History names are **not always** `Interactive.N` — they can be renamed by the user.
 
 ### Utility
@@ -251,9 +290,66 @@ client.execute_skill('dbSave(_cv)')
 
 ## Known Blockers
 
-- **GUI dialogs** block the SKILL execution channel. All `execute_skill()` calls timeout until the dialog is dismissed manually. Common culprits: "Specify history name", "No analyses enabled".
-- **Schematic must be checked & saved** before simulation, otherwise netlisting fails.
+- **GUI dialogs** block the SKILL execution channel. All `execute_skill()` calls timeout until the dialog is dismissed manually. Common culprits: "Specify history name", "No analyses enabled", "Change Mode Confirmation". Use `hiFormDone(hiGetCurrentForm())` to dismiss programmatically.
+- **Schematic must be checked & saved** (`schCheck` + `dbSave`) before simulation, otherwise netlisting fails with dialog.
 - **Schematic should be open in GUI** for Maestro to reference it correctly.
+- **`maeOpenSetup` creates background edit locks** — always pair with `maeCloseSession(?forceClose t)`. Stale `.cdslck` files may need manual deletion.
+
+## Pnoise Jitter Event — Automation Limitation
+
+The pnoise "jitter event" table (the Add/Delete buttons in Choosing Analyses → pnoise) **cannot be fully automated via SKILL API alone**. The Add button's internal function `_spectreRFAddJitterEvent` exists but requires Qt widget state that `asiSetAnalysisFieldVal` cannot set.
+
+### What works
+
+Setting pnoise analysis parameters (frequency range, method, trigger nodes) works via:
+```python
+client.execute_skill(f'maeSetAnalysis("{test}" "pnoise" ?enable t ?options `(...) ?session "{ses}")')
+```
+
+**Note:** `maeGetAnalysis` and `maeSetAnalysis` work without `hiSetCurrentWindow`. They operate on the current active maestro session directly. Both backtick syntax `` `(("key" "val")) `` and `list(list("key" "val"))` work for the `?options` argument.
+
+The `measTableData` field can be set in memory and persisted to sdb:
+```python
+# Set in memory
+client.execute_skill('asiSetAnalysisFieldVal(_pnAna "measTableData" \'("1;Edge Crossing;voltage;/X_DUT/LP;/X_DUT/LM;-;50m;1;rise;-;...")')
+# Open form + apply to persist
+client.execute_skill('asiDisplayAnalysis(asiGetCurrentSession() "pnoise")')
+client.execute_skill('hiFormApply(hiGetCurrentForm())')
+client.execute_skill('hiFormDone(hiGetCurrentForm())')
+client.execute_skill(f'maeSaveSetup(...)')
+```
+
+### What does NOT work
+
+- `_spectreRFAddJitterEvent(asiGetCurrentAnalysisForm() 'pnoise "")` — the function exists but does not read form field values set via `->value =` (Qt widget not synced)
+- Setting `measTableData` via `asiSetAnalysisFieldVal` alone without form Apply — data stays in memory but is not written to sdb
+
+### Current best workaround
+
+Copy `active.state` from a reference maestro and replace instance paths:
+```python
+# active.state is XML — jitter events stored here, not in maestro.sdb
+ssh(f"cp {src_maestro}/active.state {dst_maestro}/active.state")
+ssh(f"sed -i 's|/I4/|/X_DUT/|g' {dst_maestro}/active.state")
+```
+Then close and reopen the maestro to load from `active.state`.
+
+### Explored but failed approaches
+
+| Approach | Result |
+|----------|--------|
+| `_spectreRFAddJitterEvent` | Function exists, returns nil, table stays empty |
+| `asiSetAnalysisFieldVal("measTableData" ...)` alone | Memory updated but not persisted |
+| `asiSetAnalysisFieldVal` + `hiFormApply` | Persisted to sdb but GUI table may not display |
+| `maeSetAnalysis` with measTableData option | Memory updated but not persisted |
+| Form field `->value =` + `_spectreRFAddJitterEvent` | Qt widget not synced from SKILL |
+| `_spectreRFDeleteJitterEvent` | **Works** — can delete existing events |
+
+### Key files
+
+- `maestro/active.state` — XML file containing jitter event data (NOT in `maestro.sdb`)
+- `maestro/maestro.sdb` — XML file containing maestro setup (tests, analyses, outputs, variables)
+- Both are text-based XML and can be edited with `sed`
 
 ## Reading Results — OCEAN API
 
@@ -329,6 +425,28 @@ client.execute_skill(
     'maeExportOutputView(?fileName "/tmp/results.csv" ?view "Detail")')
 client.download_file('/tmp/results.csv', 'output/results.csv')
 ```
+
+## Maestro SKILL Utilities
+
+`examples/01_virtuoso/assets/maestro_utils.il` provides helper procedures:
+
+```python
+client.load_il("examples/01_virtuoso/assets/maestro_utils.il")
+
+# Open maestro (reuses existing window, makes editable)
+ses = client.execute_skill(f'MaestroOpen("{lib}" "{cell}")').output.strip('"')
+
+# Close cleanly (saves first to avoid "save changes?" dialog)
+client.execute_skill(f'MaestroClose("{lib}" "{cell}")')
+
+# Close all maestro windows
+client.execute_skill('MaestroCloseAll()')
+```
+
+Key behaviors:
+- `MaestroOpen` checks for existing windows first — never opens a duplicate
+- `MaestroOpen` does NOT close other cells' sessions (avoids cross-cell deadlocks)
+- `MaestroClose` saves before closing (prevents "save changes?" blocking dialog)
 
 ## Examples
 

@@ -150,10 +150,7 @@ cd {work_dir}
 
     # 3. Generate symbol for cap_unit
     client.execute_skill("ddUpdateLibList()")
-    client.execute_skill(f'''
-    schPinListToSymbol("{LIB}" "cap_unit" "symbol"
-      schSchemToPinList("{LIB}" "cap_unit" "schematic"))
-    ''')
+    client.execute_skill(f'schPinListToSymbol("{LIB}" "cap_unit" "symbol" schSchemToPinList("{LIB}" "cap_unit" "schematic"))')
     r = client.execute_skill(f'ddGetObj("{LIB}" "cap_unit")~>views~>name')
     print(f"[symbol] cap_unit: {r.output}")
 

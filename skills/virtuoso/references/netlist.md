@@ -92,6 +92,14 @@ devselect := capacitor cap
 devselect := inductor ind
 ```
 
+**Symbol generation** after spiceIn import:
+```python
+# IMPORTANT: must be a single-line SKILL string — multi-line f-strings
+# with newlines cause SKILL parsing failure via bridge
+client.execute_skill(f'schPinListToSymbol("{lib}" "{cell}" "symbol" schSchemToPinList("{lib}" "{cell}" "schematic"))')
+```
+The function works for all cells. Never manually create symbols. Verify with `ddGetObj(lib cell)~>views~>name`.
+
 Key points:
 - **Auto-wires** everything — instances, nets, pins all connected automatically
 - **Auto-generates symbols** for subcircuits (if reference lib has them)
