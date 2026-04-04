@@ -231,22 +231,39 @@ def _print_status() -> int:
     elif not running:
         print("[daemon] cannot check (tunnel not running)")
 
-    _print_spectre_license()
     print("========================================================================")
     return 0 if running else 1
 
 
-def _print_spectre_license() -> None:
-    cadence_cshrc = os.getenv("VB_CADENCE_CSHRC", "").strip()
-    if not cadence_cshrc:
-        return
+def cli_status() -> int:
+    _load_repo_env()
+    return _print_status()
 
-    try:
-        from virtuoso_bridge.spectre.runner import SpectreSimulator
-        sim = SpectreSimulator.from_env(profile=_get_cli_profile())
-        info = sim.check_license()
-    except Exception:
-        return
+
+# -- license ----------------------------------------------------------------
+
+def cli_license() -> int:
+    _load_repo_env()
+    profile = _get_cli_profile()
+    suffix = f"_{profile}" if profile else ""
+    cadence_cshrc = os.getenv(f"VB_CADENCE_CSHRC{suffix}", "").strip() or os.getenv("VB_CADENCE_CSHRC", "").strip()
+    if not cadence_cshrc:
+        print("VB_CADENCE_CSHRC is not set.")
+        return 1
+
+    from virtuoso_bridge.transport.tunnel import SSHClient
+    if not SSHClient.is_running(profile):
+        hint = f"Run `virtuoso-bridge start -p {profile}` first." if profile else "Run `virtuoso-bridge start` first."
+        print(f"No tunnel running. {hint}")
+        return 1
+
+    # Create SSHRunner with verbose=False to suppress [cmd] output
+    ssh = SSHClient.from_env(keep_remote_files=True, profile=profile)
+    ssh._ssh_runner._verbose = False
+
+    from virtuoso_bridge.spectre.runner import SpectreSimulator
+    sim = SpectreSimulator.from_env(profile=profile, ssh_runner=ssh._ssh_runner)
+    info = sim.check_license()
 
     print(f"[spectre] {info.get('spectre_path', 'NOT FOUND')}")
     if info.get("version"):
@@ -254,10 +271,8 @@ def _print_spectre_license() -> None:
     for line in info.get("licenses", []):
         print(f"  {line}")
 
-
-def cli_status() -> int:
-    _load_repo_env()
-    return _print_status()
+    ssh.close()
+    return 0 if info.get("ok") else 1
 
 
 # -- main -------------------------------------------------------------------
@@ -270,7 +285,8 @@ def build_parser() -> argparse.ArgumentParser:
         ("start", "Start SSH tunnel + deploy daemon"),
         ("stop", "Stop the SSH tunnel"),
         ("restart", "Restart the SSH tunnel"),
-        ("status", "Check tunnel + daemon + license"),
+        ("status", "Check tunnel + daemon status"),
+        ("license", "Check Spectre license availability"),
     ]:
         sp = subparsers.add_parser(name, help=hlp)
         sp.add_argument("-p", "--profile", default=None,
@@ -287,6 +303,7 @@ def main(argv: list[str] | None = None) -> int:
         "stop": cli_stop,
         "restart": cli_restart,
         "status": cli_status,
+        "license": cli_license,
     }
     # Pass profile to commands that support it
     profile = getattr(args, "profile", None)
