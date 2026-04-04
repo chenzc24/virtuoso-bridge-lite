@@ -427,6 +427,7 @@ class SpectreSimulator:
         ssh_config_path: Path | None = None,
         keep_remote_files: bool = False,
         remote: bool = False,
+        ssh_runner: SSHRunner | None = None,
     ) -> None:
         self._spectre_cmd = spectre_cmd
         self._spectre_args = list(spectre_args or [])
@@ -436,7 +437,7 @@ class SpectreSimulator:
         self._ssh_key_path = ssh_key_path
         self._ssh_config_path = ssh_config_path
         self._keep_remote_files = keep_remote_files
-        self._ssh_runner: SSHRunner | None = None
+        self._ssh_runner: SSHRunner | None = ssh_runner
 
         rh, ru, jh, ju = remote_host, remote_user, jump_host, jump_user
         if remote:
@@ -468,8 +469,14 @@ class SpectreSimulator:
         work_dir: Path | None = None,
         output_format: str | None = "psfascii",
         keep_remote_files: bool = False,
+        ssh_runner: SSHRunner | None = None,
     ) -> "SpectreSimulator":
-        """Create a remote SpectreSimulator from environment variables."""
+        """Create a remote SpectreSimulator from environment variables.
+
+        If *ssh_runner* is provided, reuse it instead of creating a new SSH
+        connection.  This is useful when a ``VirtuosoClient`` is already
+        connected — pass ``client.ssh_runner`` to share the connection.
+        """
         return cls(
             spectre_cmd=spectre_cmd,
             spectre_args=spectre_args,
@@ -478,6 +485,7 @@ class SpectreSimulator:
             output_format=output_format,
             keep_remote_files=keep_remote_files,
             remote=True,
+            ssh_runner=ssh_runner,
         )
 
     # -- public API ---------------------------------------------------------

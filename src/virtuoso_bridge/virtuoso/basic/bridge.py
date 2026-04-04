@@ -184,6 +184,13 @@ class VirtuosoClient(VirtuosoInterface):
         return self._tunnel is not None and getattr(self._tunnel, 'is_tunnel_alive', False)
 
     @property
+    def ssh_runner(self):
+        """The underlying SSHRunner, for sharing with SpectreSimulator."""
+        if self._tunnel is None:
+            return None
+        return getattr(self._tunnel, '_ssh_runner', None)
+
+    @property
     def log_to_ciw(self) -> bool:
         return self._log_to_ciw
 
