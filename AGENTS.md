@@ -95,7 +95,6 @@ M0 (VOUT VIN VSS VSS) nch_ulvt_mac l=30n w=1u nf=1
 |---|---|---|
 | `virtuoso` | `skills/virtuoso/SKILL.md` | SKILL execution, layout/schematic editing |
 | `spectre` | `skills/spectre/SKILL.md` | Simulation, result parsing |
-| `optimizer` | `skills/optimizer/SKILL.md` | Parameter optimization loops |
 
 ```
 skills/virtuoso/

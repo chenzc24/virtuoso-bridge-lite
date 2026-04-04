@@ -148,4 +148,3 @@ Load only when needed — these contain detailed API docs and edge-case guidance
 ## Related skills
 
 - **spectre** — standalone netlist-driven Spectre simulation (no Virtuoso GUI). Use when the user has a `.scs` netlist and wants to run it directly.
-- **optimizer** — automated parameter optimization via Spectre simulation loops (TuRBO). Use when the user wants to sweep/tune circuit parameters to meet specs.

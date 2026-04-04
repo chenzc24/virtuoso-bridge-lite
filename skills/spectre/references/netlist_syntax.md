@@ -86,7 +86,7 @@ XI0 (IN OUT VDD VSS) my_subckt param1=value1
 | `saveinit=yes` | Save initial conditions |
 | `maxiters=200` | Increase max iterations for convergence |
 
-## Parameterization for optimization
+## Netlist parameterization
 
 Use `@@PARAM@@` placeholders in a template netlist, then replace with Python `str.replace()`:
 

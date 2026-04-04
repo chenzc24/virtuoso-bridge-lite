@@ -117,4 +117,3 @@ Load only when needed:
 ## Related skills
 
 - **virtuoso** — GUI-based Virtuoso workflow (schematic/layout editing, ADE Maestro simulation). Use when the user is working inside the Virtuoso GUI.
-- **optimizer** — automated parameter optimization over Spectre simulations. Builds on this skill's `SpectreSimulator` for the simulation loop.
