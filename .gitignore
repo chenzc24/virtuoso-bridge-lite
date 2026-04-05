@@ -22,6 +22,7 @@ arxiv/preview/
 texput.log
 *.log
 arxiv/arxiv_submission.zip
+arxiv/submission_info.txt
 optimization/
 reference/
 .vscode/
