@@ -549,14 +549,14 @@ def cli_sim_jobs() -> int:
         elif j["status"] == "running" and probe.get("alive") is False:
             cpu_info = "  \033[90m(process not found)\033[0m"
 
-        print(f"{status_icon} {j['id']}  {host:<20s} {j['netlist']:<24s} {j['status']:<8s} {start} {dur}{cpu_info}")
+        print(f"{status_icon} {j['id']}  {host:<25s} {j['netlist']:<24s} {j['status']:<8s} {start} {dur}{cpu_info}")
 
     for j in done[-5:]:
         host = _fmt_host(j)
         start = _fmt_time(j.get("submitted"))
         end = _fmt_time(j.get("finished"))
         dur = _fmt_duration(j)
-        print(f"\033[32m✓\033[0m {j['id']}  {host:<20s} {j['netlist']:<24s} done     {start}-{end} {dur}")
+        print(f"\033[32m✓\033[0m {j['id']}  {host:<25s} {j['netlist']:<24s} done     {start}-{end} {dur}")
 
     for j in errored[-3:]:
         host = _fmt_host(j)
@@ -564,7 +564,7 @@ def cli_sim_jobs() -> int:
         end = _fmt_time(j.get("finished"))
         dur = _fmt_duration(j)
         err = j.get("errors", [""])[0][:35] if j.get("errors") else ""
-        print(f"\033[31m✗\033[0m {j['id']}  {host:<20s} {j['netlist']:<24s} fail     {start}-{end} {dur} {err}")
+        print(f"\033[31m✗\033[0m {j['id']}  {host:<25s} {j['netlist']:<24s} fail     {start}-{end} {dur} {err}")
 
     print()
     return 0
