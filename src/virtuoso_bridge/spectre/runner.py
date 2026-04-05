@@ -522,6 +522,61 @@ class SpectreSimulator:
             return self._run_remote(netlist, params)
         return self._run_local(netlist)
 
+    def run_parallel(
+        self,
+        tasks: list[tuple[Path, dict]],
+        max_workers: int = 8,
+    ) -> list[SimulationResult]:
+        """Run multiple Spectre simulations in parallel.
+
+        Each task is a ``(netlist_path, params_dict)`` tuple, same arguments
+        as :meth:`run_simulation`.  Simulations execute concurrently via
+        threads — each gets its own remote directory (uuid-based), so there
+        are no file conflicts.  The SSH ControlMaster connection is shared
+        automatically.
+
+        *max_workers* limits concurrency (default 8).  Set this based on
+        available Spectre licenses and remote CPU cores.
+
+        Returns a list of :class:`SimulationResult` in the same order as
+        *tasks*.  Failed simulations return an error result rather than
+        raising an exception.
+
+        Example::
+
+            sim = SpectreSimulator.from_env()
+            results = sim.run_parallel([
+                (Path("tb_comparator.scs"), {}),
+                (Path("tb_dac.scs"), {}),
+                (Path("tb_sar_logic.scs"), {"include_files": ["models.scs"]}),
+            ], max_workers=4)
+            for r in results:
+                print(r.status, r.data.get("gain_db"))
+        """
+        from concurrent.futures import ThreadPoolExecutor, Future
+
+        n = min(max_workers, len(tasks))
+        print(f"[parallel] Launching {len(tasks)} simulations (max {n} concurrent)")
+
+        with ThreadPoolExecutor(max_workers=n) as pool:
+            futures: list[Future[SimulationResult]] = []
+            for netlist, params in tasks:
+                futures.append(pool.submit(self.run_simulation, Path(netlist), params))
+
+            results: list[SimulationResult] = []
+            for i, future in enumerate(futures):
+                try:
+                    results.append(future.result())
+                except Exception as exc:
+                    results.append(SimulationResult(
+                        status=ExecutionStatus.ERROR,
+                        errors=[f"Parallel task {i} failed: {exc}"],
+                    ))
+
+        passed = sum(1 for r in results if r.status == ExecutionStatus.SUCCESS)
+        print(f"[parallel] Done: {passed}/{len(results)} succeeded")
+        return results
+
     def check_license(self) -> dict[str, Any]:
         """Check Spectre license availability on the remote host.
 
