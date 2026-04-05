@@ -6,6 +6,7 @@ import argparse
 import os
 import re
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -111,8 +112,8 @@ def _ssh_precheck() -> int | None:
     return None
 
 
-def cli_start() -> int:
-    _load_repo_env()
+def _start_one() -> int:
+    """Start tunnel for the current profile (read from _CLI_PROFILE)."""
     profile = _get_cli_profile()
     suffix = f"_{profile}" if profile else ""
     if not os.getenv(f"VB_REMOTE_HOST{suffix}", "").strip():
@@ -156,37 +157,54 @@ def cli_start() -> int:
     return _print_status()
 
 
+def cli_start() -> int:
+    _load_repo_env()
+    return _for_each_profile(_start_one)
+
+
 # -- stop -------------------------------------------------------------------
 
-def cli_stop() -> int:
-    _load_repo_env()
+def _stop_one() -> int:
+    """Stop tunnel for the current profile."""
     profile = _get_cli_profile()
     from virtuoso_bridge.transport.tunnel import SSHClient
 
+    label = f" [{profile}]" if profile else ""
     if not SSHClient.is_running(profile):
-        print("No tunnel running.")
+        print(f"No tunnel running{label}.")
         return 0
 
     ssh = SSHClient.from_env(keep_remote_files=True, profile=profile)
     ssh.stop()
-    print("Tunnel stopped.")
+    print(f"Tunnel stopped{label}.")
     return 0
+
+
+def cli_stop() -> int:
+    _load_repo_env()
+    return _for_each_profile(_stop_one)
 
 
 # -- restart ----------------------------------------------------------------
 
-def cli_restart() -> int:
-    _load_repo_env()
+def _restart_one() -> int:
+    """Restart tunnel for the current profile."""
     profile = _get_cli_profile()
     from virtuoso_bridge.transport.tunnel import SSHClient
 
     if SSHClient.is_running(profile):
-        print("Stopping tunnel...")
+        label = f" [{profile}]" if profile else ""
+        print(f"Stopping tunnel{label}...")
         ssh = SSHClient.from_env(keep_remote_files=True, profile=profile)
         ssh.stop()
         time.sleep(0.5)
 
-    return cli_start()
+    return _start_one()
+
+
+def cli_restart() -> int:
+    _load_repo_env()
+    return _for_each_profile(_restart_one)
 
 
 # -- status -----------------------------------------------------------------
@@ -340,26 +358,32 @@ def _discover_profiles() -> list[str | None]:
     return profiles
 
 
-def cli_status() -> int:
-    _load_repo_env()
+def _for_each_profile(fn: Callable[[], int]) -> int:
+    """Run *fn* for each profile. If -p was given, run only that one.
+
+    Returns 0 if any profile succeeded (returned 0), 1 otherwise.
+    """
     profile = _get_cli_profile()
     if profile is not None:
-        # Explicit profile requested — show only that one
-        return _print_status()
-    # No profile specified — show all discovered profiles
+        return fn()
     profiles = _discover_profiles()
     if not profiles:
         print("No profiles found. Set VB_REMOTE_HOST in .env first.")
         return 1
-    any_running = False
+    any_ok = False
     for i, p in enumerate(profiles):
         _CLI_PROFILE[0] = p
-        ret = _print_status()
+        ret = fn()
         if ret == 0:
-            any_running = True
+            any_ok = True
         if i < len(profiles) - 1:
-            print()  # blank line between profiles
-    return 0 if any_running else 1
+            print()
+    return 0 if any_ok else 1
+
+
+def cli_status() -> int:
+    _load_repo_env()
+    return _for_each_profile(_print_status)
 
 
 # -- license ----------------------------------------------------------------
