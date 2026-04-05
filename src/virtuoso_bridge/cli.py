@@ -262,8 +262,6 @@ def _print_status() -> int:
                 remote_hostname = (hostname_result.output or "").strip().strip('"')
                 if remote_hostname:
                     print(f"  hostname : {remote_hostname}")
-                if remote_hostname and configured_host and remote_hostname != configured_host:
-                    print(f"  [warning] hostname mismatch: VB_REMOTE_HOST{suffix}={configured_host}")
 
                 # Say hello in Virtuoso CIW
                 vc.execute_skill(
