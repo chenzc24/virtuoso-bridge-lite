@@ -362,16 +362,14 @@ def _run_spectre_remote(
         'export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}" && '
     )
     pid_file = f"{remote_dir}/spectre.pid"
-    # Wrap spectre command to record PID: run in background, save PID, wait
-    spectre_with_pid = (
-        f"{spectre_command} & SPID=$!; "
-        f"echo $SPID > {shlex.quote(pid_file)}; "
-        f"wait $SPID"
-    )
+    # Run spectre inside csh for Cadence env, then record PID from sh wrapper
+    # csh runs spectre; sh wrapper handles PID tracking (csh $! syntax differs)
+    csh_inner = f"{csh_body}; {spectre_command}"
     exec_cmd = (
         f"{env_setup}"
         f"mkdir -p {shlex.quote(remote_raw_dir)} && "
-        f"csh -c {shlex.quote(f'{csh_body}; {spectre_with_pid}')}"
+        f"csh -c {shlex.quote(csh_inner)} & "
+        f"SPID=$!; echo $SPID > {shlex.quote(pid_file)}; wait $SPID"
     )
 
     logger.info("[remote] %s", exec_cmd)
