@@ -246,6 +246,11 @@ def run_simulation(client: VirtuosoClient, *, session: str = "") -> str:
 
     Returns the run name (e.g. "Interactive.1").
     Follow with wait_until_done() to wait for completion.
+
+    IMPORTANT: The maestro must be opened in GUI mode (deOpenCellView +
+    maeMakeEditable) for wait_until_done to block properly. Background
+    sessions (maeOpenSetup) cause maeWaitUntilDone to return immediately,
+    and maeCloseSession will cancel any in-flight simulation.
     """
     s = f' ?session "{session}"' if session else ""
     return _q(client, f'maeRunSimulation({s.strip()})')
@@ -255,11 +260,11 @@ def wait_until_done(client: VirtuosoClient, timeout: int = 600) -> str:
     """Wait until simulation finishes.
 
     Uses maeWaitUntilDone('All) which blocks the SKILL channel until
-    all simulations complete. This is the only reliable method — polling
-    via maeGetNumberOfExecutedRuns() does not work in background sessions.
+    all simulations complete.
 
-    The simulation itself still runs in parallel on the server (if LSCS
-    job control is enabled). Only the SKILL channel is blocked.
+    IMPORTANT: Only works when maestro is opened in GUI mode
+    (deOpenCellView + maeMakeEditable). In background sessions
+    (maeOpenSetup), this returns immediately without waiting.
     """
     return client.execute_skill(
         "maeWaitUntilDone('All)", timeout=timeout).output or ""
