@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
-"""Step 2: Run simulation, read results, export waveforms, show in GUI.
+"""Step 2: Open GUI → simulate → wait → read results → export waveforms.
+
+One Maestro GUI window, open the whole time. No close/reopen.
 
 Prerequisite: run 06a_rc_create.py first.
-
-Flow:
-1. Ensure clean state (close sessions, windows, remove locks)
-2. Background session → start simulation → poll until done
-3. Open GUI read-only → read results + export waveforms
-4. Make editable → restore history → save → done
 """
 
 import re
@@ -19,7 +15,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "src"))
 
 from virtuoso_bridge import VirtuosoClient
 from virtuoso_bridge.virtuoso.maestro import (
-    open_session, close_session, run_simulation, wait_until_done,
     read_results, export_waveform, save_setup,
 )
 
@@ -39,73 +34,93 @@ def parse_wave_file(path: str) -> list[tuple[float, float]]:
     return pairs
 
 
-def ensure_clean(client: VirtuosoClient) -> None:
-    """Close all sessions, close all maestro windows (save first), remove locks."""
-    # Save + close all maestro windows (save prevents "save changes?" dialog)
-    client.execute_skill(f'''
-foreach(s maeGetSessions()
-  errset(maeSaveSetup(?lib "{LIB}" ?cell "{CELL}" ?view "maestro" ?session s))
-  errset(maeCloseSession(?session s ?forceClose t))
-)
-foreach(win hiGetWindowList()
-  let((n) n = hiGetWindowName(win)
-    when(and(n rexMatchp("maestro" n))
-      errset(hiCloseWindow(win))
-      let((form) form = hiGetCurrentForm() when(form errset(hiFormCancel(form))))
-    )))
-t
-''')
-    # Remove stale lock file
-    client.execute_skill(f'''
-let((libPath lockPath)
-  libPath = ddGetObj("{LIB}")~>writePath
-  when(libPath
-    lockPath = strcat(libPath "/{CELL}/maestro/maestro.sdb.cdslck")
-    when(isFile(lockPath) deleteFile(lockPath))
-  )
-)
-''')
-    time.sleep(0.5)
-
-
 def main() -> int:
     client = VirtuosoClient.from_env()
     print(f"[info] {LIB}/{CELL}")
     t_total = time.time()
 
-    # 1. Ensure clean state
-    ensure_clean(client)
+    # 1. Clean residual sessions/windows/locks
+    client.execute_skill(f'''
+foreach(s maeGetSessions()
+  errset(maeSaveSetup(?lib "{LIB}" ?cell "{CELL}" ?view "maestro" ?session s))
+  errset(maeCloseSession(?session s ?forceClose t)))
+foreach(win hiGetWindowList()
+  let((n) n = hiGetWindowName(win)
+    when(and(n rexMatchp("maestro" n))
+      errset(hiCloseWindow(win))
+      let((form) form = hiGetCurrentForm() when(form errset(hiFormCancel(form)))))))
+let((libPath lockPath)
+  libPath = ddGetObj("{LIB}")~>writePath
+  when(libPath
+    lockPath = strcat(libPath "/{CELL}/maestro/maestro.sdb.cdslck")
+    when(isFile(lockPath) deleteFile(lockPath))))
+t
+''')
+    time.sleep(0.5)
 
-    # 2. Open GUI in edit mode (cleaned first, so no lock conflict)
+    # 2. Open GUI (stays open the whole time)
     client.execute_skill(
         f'deOpenCellView("{LIB}" "{CELL}" "maestro" "maestro" nil "r")')
     client.execute_skill('maeMakeEditable()')
+    print("[gui] Maestro opened")
+
+    # 3. Set up completion callback + start simulation
+    marker = "/tmp/vb_sim_done_marker"
+    client.execute_skill(f'''
+; Remove old marker
+when(isFile("{marker}") deleteFile("{marker}"))
+
+; Register alarm-based callback: check every second, write marker when done
+procedure(_vbCheckSimDone()
+  let((status)
+    status = maeGetOverallSpecStatus()
+    if(status then
+      let((port)
+        port = outfile("{marker}")
+        fprintf(port "done %s\\n" getCurrentTime())
+        close(port)
+        printf("[%s sim] Finished\\n" nth(2 parseString(getCurrentTime())))
+      )
+    else
+      alarm(1 '_vbCheckSimDone)
+    )
+  )
+)
+t
+''')
+
+    t0 = time.time()
+    r = client.execute_skill('maeRunSimulation()')
+    run_name = (r.output or "").strip('"')
+    print(f"[sim] Started: {run_name}")
+
+    # Start the alarm checker
+    client.execute_skill('alarm(1 \'_vbCheckSimDone)')
+
+    # 4. Wait via SSH for marker file (one command, zero SKILL channel usage)
+    print("[sim] Waiting (callback)...")
+    client.ssh_runner.run_command(
+        f'bash -c "while [ ! -f {marker} ]; do sleep 1; done"',
+        timeout=600)
+    print(f"[sim] Done ({time.time() - t0:.1f}s)")
+
+    # 5. Find session
     r = client.execute_skill('''
 let((s) s = nil
   foreach(x maeGetSessions() unless(s when(maeGetSetup(?session x) s = x)))
   s)
 ''')
-    gui_session = (r.output or "").strip('"')
-    print(f"[gui] Maestro opened (session {gui_session})")
+    session = (r.output or "").strip('"')
 
-    # 3. Start simulation (in GUI session, async)
-    t0 = time.time()
-    run_name = run_simulation(client).strip('"')
-    print(f"[sim] Started: {run_name} ({time.time() - t0:.1f}s)")
-
-    # 4. Wait (SSH poll spectre.out, non-blocking → LSCS parallel)
-    print("[sim] Waiting...")
-    wait_until_done(client, run_name, timeout=600)
-    print(f"[sim] Done ({time.time() - t0:.1f}s)")
-
+    # 6. Read results
     print("\n=== Results ===")
-    results = read_results(client, gui_session, lib=LIB, cell=CELL)
+    results = read_results(client, session, lib=LIB, cell=CELL)
     if results:
         for key, (expr, raw) in results.items():
             print(f"[{key}] {expr}")
             print(f"  {raw}")
 
-    # 6. Export waveforms
+    # 7. Export waveforms
     yield_expr = results.get("maeGetOverallYield", ("", ""))[0]
     hm = re.search(r'Interactive\.\d+', yield_expr)
     history = hm.group(0) if hm else ""
@@ -116,12 +131,12 @@ let((s) s = nil
 
         print("\n=== Waveforms ===")
         mag_file = str(output_dir / "rc_ac_mag_db.txt")
-        export_waveform(client, gui_session, 'dB20(mag(v("/OUT")))',
+        export_waveform(client, session, 'dB20(mag(v("/OUT")))',
                         mag_file, analysis="ac", history=history)
         print(f"AC magnitude: {mag_file}")
 
         phase_file = str(output_dir / "rc_ac_phase.txt")
-        export_waveform(client, gui_session, 'phase(v("/OUT"))',
+        export_waveform(client, session, 'phase(v("/OUT"))',
                         phase_file, analysis="ac", history=history)
         print(f"AC phase: {phase_file}")
 
@@ -142,8 +157,7 @@ let((s) s = nil
                     print(f"  f_3dB = {f_3db:.3e} Hz")
                     break
 
-        # 7. Make editable → restore history → save (so GUI shows results)
-        client.execute_skill('maeMakeEditable()')
+        # 8. Restore history + save (GUI stays open)
         client.execute_skill(f'maeRestoreHistory("{history}")')
         save_setup(client, LIB, CELL)
         print(f"\n[gui] Showing {history}")
