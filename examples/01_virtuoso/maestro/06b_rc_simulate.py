@@ -25,10 +25,12 @@ def main() -> int:
 
     session = open_session(client, LIB, CELL)
 
+    import time
     print("[sim] Running...")
+    t0 = time.time()
     run_simulation(client, session=session)
     wait_until_done(client, timeout=600)
-    print("[sim] Done")
+    print(f"[sim] Done ({time.time() - t0:.1f}s)")
 
     close_session(client, session)
     return 0
