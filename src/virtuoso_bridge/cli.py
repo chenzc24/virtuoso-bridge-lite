@@ -117,27 +117,46 @@ def _ssh_precheck(profile: str | None = None) -> int | None:
 def _start_one_profile(profile: str | None) -> int:
     """Start tunnel for a single profile (thread-safe, uses explicit profile)."""
     suffix = f"_{profile}" if profile else ""
-    if not os.getenv(f"VB_REMOTE_HOST{suffix}", "").strip():
+    remote_host = os.getenv(f"VB_REMOTE_HOST{suffix}", "").strip()
+    if not remote_host:
         print(f"VB_REMOTE_HOST{suffix} is not set. Run: virtuoso-bridge init")
         return 1
 
-    precheck = _ssh_precheck(profile)
-    if precheck is not None:
-        return precheck
+    from virtuoso_bridge.transport.tunnel import SSHClient, _is_localhost
 
-    from virtuoso_bridge.transport.tunnel import SSHClient
+    is_local = _is_localhost(remote_host)
+
+    if not is_local:
+        precheck = _ssh_precheck(profile)
+        if precheck is not None:
+            return precheck
 
     if SSHClient.is_running(profile):
-        print("Tunnel already running.")
+        msg = "Bridge already running." if is_local else "Tunnel already running."
+        print(msg)
         return 0
 
     label = f" [{profile}]" if profile else ""
-    print(f"Starting tunnel{label}...")
+    if is_local:
+        print(f"Setting up local bridge{label}...")
+    else:
+        print(f"Starting tunnel{label}...")
     ssh = SSHClient.from_env(keep_remote_files=True, profile=profile)
     started = time.monotonic()
     ssh.warm()
     elapsed = time.monotonic() - started
     print(f"tunnel.warm = {_fmt(elapsed)}")
+
+    if is_local:
+        # For local mode, print setup_path for user to load in CIW
+        state = SSHClient.read_state(profile)
+        if state:
+            setup_path = state.get("setup_path")
+            if setup_path:
+                print(f"  Load in Virtuoso CIW: load(\"{setup_path}\")")
+        ssh.close()
+        return 0
+
     ssh.close()
 
     time.sleep(1.0)
@@ -225,7 +244,7 @@ def cli_restart() -> int:
 def _print_status() -> int:
     _load_repo_env()
     profile = _get_cli_profile()
-    from virtuoso_bridge.transport.tunnel import SSHClient
+    from virtuoso_bridge.transport.tunnel import SSHClient, _is_localhost
     from virtuoso_bridge.virtuoso.basic.bridge import VirtuosoClient
 
     state = SSHClient.read_state(profile)
@@ -234,25 +253,37 @@ def _print_status() -> int:
     label = f" [{profile}]" if profile else ""
     print(f"  Virtuoso Bridge Status{label}")
 
-    # Tunnel
     suffix = f"_{profile}" if profile else ""
     configured_host = os.getenv(f"VB_REMOTE_HOST{suffix}", "").strip()
     configured_user = os.getenv(f"VB_REMOTE_USER{suffix}", "").strip()
     jump_host = os.getenv(f"VB_JUMP_HOST{suffix}", "").strip()
 
-    print(f"\n[tunnel] {'running' if running else 'NOT running'}")
-    print(f"  remote host : {configured_host or '(not set)'}")
-    print(f"  remote user : {configured_user or '(not set)'}")
-    if jump_host:
-        print(f"  jump host   : {jump_host}")
-    if state:
-        print(f"  local port  : {state.get('port')}")
-        setup_path = state.get("setup_path")
+    is_local = _is_localhost(configured_host) if configured_host else False
+
+    if is_local:
+        print(f"\n[mode] local (no SSH tunnel)")
+        if state:
+            print(f"  port : {state.get('port')}")
+            setup_path = state.get("setup_path")
+        else:
+            setup_path = None
     else:
-        setup_path = None
+        # Remote tunnel mode
+        print(f"\n[tunnel] {'running' if running else 'NOT running'}")
+        print(f"  remote host : {configured_host or '(not set)'}")
+        print(f"  remote user : {configured_user or '(not set)'}")
+        if jump_host:
+            print(f"  jump host   : {jump_host}")
+        if state:
+            print(f"  local port  : {state.get('port')}")
+            setup_path = state.get("setup_path")
+        else:
+            setup_path = None
 
     # Daemon (Virtuoso CIW)
-    if running and state:
+    # For local mode, check daemon if we have state (don't require 'running')
+    can_check_daemon = (is_local and state) or (running and state)
+    if can_check_daemon:
         port = state["port"]
         try:
             vc = VirtuosoClient(host="127.0.0.1", port=port, timeout=5)
@@ -274,29 +305,68 @@ def _print_status() -> int:
                 print(f"    load(\"{setup_path}\")")
         except Exception as e:
             print(f"\n[daemon] error: {e}")
-    elif not running:
+    elif not is_local and not running:
         print(f"\n[daemon] cannot check (tunnel not running)")
         if setup_path:
             print(f"  After starting, load in Virtuoso CIW:")
             print(f"    load(\"{setup_path}\")")
 
     # Spectre
-    if running:
+    if is_local or running:
         _print_spectre_status(profile, suffix)
 
     print("\n========================================================================")
+    if is_local:
+        return 0  # local mode: no tunnel to check
     return 0 if running else 1
 
 
 def _print_spectre_status(profile: str | None, suffix: str) -> None:
-    """Check and print Spectre availability via SSH.
+    """Check and print Spectre availability.
 
-    Strategy: try ``which spectre`` directly first (works when the user's
-    login shell already has Cadence on PATH).  If that fails and
+    For local mode: uses shutil.which and subprocess locally.
+    For remote mode: SSH-based check via SSHClient.
+
+    Strategy (remote): try ``which spectre`` directly first (works when the
+    user's login shell already has Cadence on PATH).  If that fails and
     VB_CADENCE_CSHRC is set, source it in a csh sub-shell and retry.
     """
-    from virtuoso_bridge.transport.tunnel import SSHClient
+    import shutil
+    import subprocess
 
+    from virtuoso_bridge.transport.tunnel import SSHClient, _is_localhost
+
+    configured_host = os.getenv(f"VB_REMOTE_HOST{suffix}", "").strip()
+    is_local = _is_localhost(configured_host) if configured_host else False
+
+    if is_local:
+        try:
+            spectre_path = shutil.which("spectre")
+            version = None
+            if spectre_path:
+                try:
+                    result = subprocess.run(
+                        ["spectre", "-V"],
+                        capture_output=True, text=True, timeout=10,
+                    )
+                    for line in (result.stdout + result.stderr).splitlines():
+                        if line.strip().startswith("@(#)$CDS:"):
+                            version = line.strip()
+                            break
+                except Exception:
+                    pass
+            if spectre_path:
+                print(f"\n[spectre] OK")
+                print(f"  path    : {spectre_path}")
+                if version:
+                    print(f"  version : {version}")
+            else:
+                print(f"\n[spectre] NOT FOUND")
+        except Exception as e:
+            print(f"\n[spectre] error: {e}")
+        return
+
+    # Remote mode — SSH-based check
     try:
         ssh = SSHClient.from_env(keep_remote_files=True, profile=profile)
         ssh._ssh_runner._verbose = False
