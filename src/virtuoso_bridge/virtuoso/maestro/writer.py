@@ -242,15 +242,40 @@ def set_job_policy(client: VirtuosoClient, policy, *,
 
 
 def run_simulation(client: VirtuosoClient, *, session: str = "") -> str:
-    """maeRunSimulation — run simulation (async, returns immediately)."""
+    """maeRunSimulation — run simulation (async, returns immediately).
+
+    Returns the run name (e.g. "Interactive.1").
+    Follow with wait_until_done() to wait for completion.
+    """
     s = f' ?session "{session}"' if session else ""
     return _q(client, f'maeRunSimulation({s.strip()})')
 
 
-def wait_until_done(client: VirtuosoClient, timeout: int = 300) -> str:
-    """maeWaitUntilDone — block until simulation finishes."""
-    return client.execute_skill(
-        "maeWaitUntilDone('All)", timeout=timeout).output or ""
+def wait_until_done(client: VirtuosoClient, timeout: int = 600,
+                    poll_interval: float = 2.0) -> None:
+    """Poll until simulation finishes. Does NOT block the SKILL channel.
+
+    Uses maeGetNumberOfExecutedRuns() to check progress every poll_interval
+    seconds. The SKILL channel stays free between polls, so Virtuoso's event
+    loop (and parallel simulation) runs unimpeded.
+
+    Args:
+        timeout: max seconds to wait before raising TimeoutError
+        poll_interval: seconds between polls (default 2s)
+    """
+    import time
+    start = time.time()
+    while True:
+        r = client.execute_skill('maeGetNumberOfExecutedRuns()')
+        count = (r.output or "").strip('"')
+        # maeGetNumberOfExecutedRuns returns 0 while running, >0 when done
+        if count and count != "0" and count != "nil":
+            return
+        if time.time() - start > timeout:
+            raise TimeoutError(
+                f"Simulation not done after {timeout}s "
+                f"(maeGetNumberOfExecutedRuns={count})")
+        time.sleep(poll_interval)
 
 
 # ---------------------------------------------------------------------------
