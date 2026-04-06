@@ -53,7 +53,10 @@ def main() -> int:
             f' "{param}")~>value = "{val}"')
     client.execute_skill(f"schCheck({cv})")
     client.execute_skill(f"dbSave({cv})")
-    print("[schematic] Done")
+    r = client.execute_skill(f"{cv}~>instances~>name")
+    print(f"[schematic] {LIB}/{CELL}/schematic")
+    print(f"  Instances: {r.output}")
+    print(f"  V0: vdc=0, acm=1 | R0: r=1k | C0: c=c_val | Pin: OUT")
 
     # --- Create Maestro ---
     print("[maestro] Creating setup...")
@@ -74,7 +77,11 @@ def main() -> int:
 
     save_setup(client, LIB, CELL, session=session)
     close_session(client, session)
-    print("[maestro] Done — AC 1Hz–10GHz, sweep c_val=1p,100f, spec BW>1GHz")
+    print(f"[maestro] {LIB}/{CELL}/maestro")
+    print(f"  Test: AC | Analysis: ac 1Hz-10GHz, 20pts/dec")
+    print(f"  Outputs: Vout (net /OUT), BW (bandwidth expr)")
+    print(f"  Spec: BW > 1GHz")
+    print(f"  Sweep: c_val = 1p, 100f")
     return 0
 
 
