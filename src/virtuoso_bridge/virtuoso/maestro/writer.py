@@ -278,13 +278,17 @@ def wait_until_done(client: VirtuosoClient, timeout: int = 600) -> None:
     subprocess.run(ssh_cmd + [f"rm -f {marker}"],
                    capture_output=True, timeout=10)
 
-    # Register runFinished callback (4 args: session, pointId, runId, status)
+    # Disconnect old callback if any, then register new one
     client.execute_skill(f'''
-procedure(_vbRunFinishedCB(ses pointId runId status)
-  let((p) p = outfile("{marker}")
-    fprintf(p "%s\\n" status) close(p)
-    printf("[%s wait_until_done] %s\\n" nth(2 parseString(getCurrentTime())) status)))
-axlSessionConnect(axlGetWindowSession(hiGetCurrentWindow()) "runFinished" '_vbRunFinishedCB)
+let((s)
+  s = axlGetWindowSession(hiGetCurrentWindow())
+  errset(axlSessionDisconnect(s '_vbRunFinishedCB))
+  procedure(_vbRunFinishedCB(ses pointId runId status)
+    let((p) p = outfile("{marker}")
+      fprintf(p "%s\\n" status) close(p)
+      printf("[%s wait_until_done] %s\\n" nth(2 parseString(getCurrentTime())) status)))
+  axlSessionConnect(s "runFinished" '_vbRunFinishedCB)
+)
 ''')
 
     # Wait for marker via SSH bash loop (single arg, avoids csh issues)

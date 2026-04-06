@@ -39,30 +39,22 @@ def main() -> int:
     print(f"[info] {LIB}/{CELL}")
     t_total = time.time()
 
-    # 1. Clean residual sessions/windows/locks
-    client.execute_skill(f'''
-foreach(s maeGetSessions()
-  errset(maeSaveSetup(?lib "{LIB}" ?cell "{CELL}" ?view "maestro" ?session s))
-  errset(maeCloseSession(?session s ?forceClose t)))
-foreach(win hiGetWindowList()
-  let((n) n = hiGetWindowName(win)
-    when(and(n rexMatchp("maestro" n))
-      errset(hiCloseWindow(win))
-      let((form) form = hiGetCurrentForm() when(form errset(hiFormCancel(form)))))))
-let((libPath lockPath)
-  libPath = ddGetObj("{LIB}")~>writePath
-  when(libPath
-    lockPath = strcat(libPath "/{CELL}/maestro/maestro.sdb.cdslck")
-    when(isFile(lockPath) deleteFile(lockPath))))
-t
+    # 1. Check if maestro already open with valid test — reuse it
+    r = client.execute_skill('''
+let((s) s = nil
+  foreach(x maeGetSessions() unless(s when(maeGetSetup(?session x) s = x)))
+  s)
 ''')
-    time.sleep(0.5)
+    existing = (r.output or "").strip('"')
 
-    # 2. Open GUI (stays open the whole time)
-    client.execute_skill(
-        f'deOpenCellView("{LIB}" "{CELL}" "maestro" "maestro" nil "r")')
-    client.execute_skill('maeMakeEditable()')
-    print("[gui] Maestro opened")
+    if existing and existing != "nil":
+        print(f"[gui] Reusing existing session {existing}")
+    else:
+        # No valid session — open fresh
+        client.execute_skill(
+            f'deOpenCellView("{LIB}" "{CELL}" "maestro" "maestro" nil "r")')
+        client.execute_skill('maeMakeEditable()')
+        print("[gui] Maestro opened")
 
     # 3. Start simulation
     t0 = time.time()
