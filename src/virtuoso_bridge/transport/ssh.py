@@ -11,6 +11,7 @@ import queue
 import shlex
 import shutil
 import signal
+import tempfile
 import socket
 import subprocess
 import threading
@@ -142,8 +143,10 @@ class SSHRunner:
 
         # ControlMaster socket path for SSH connection multiplexing.
         # All ssh/scp calls to the same host reuse one TCP connection.
+        # Use tempfile.gettempdir() for cross-platform compatibility (Windows has no /tmp).
         _user_part = user or "default"
-        self._control_path = f"/tmp/vb_ssh_{_user_part}@{host}:{jump_host or 'direct'}"
+        _tmp = tempfile.gettempdir()
+        self._control_path = f"{_tmp}/vb_ssh_{_user_part}@{host}:{jump_host or 'direct'}"
 
         self._shell_proc: subprocess.Popen[bytes] | None = None
         self._shell_queue: queue.Queue[str | None] | None = None
