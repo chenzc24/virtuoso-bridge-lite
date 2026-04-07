@@ -17,7 +17,7 @@
   <img src="https://img.shields.io/badge/AI%20Native-agent--driven-blueviolet" alt="AI Native"/>
 </p>
 
-Bridge between LLM-Agent and Cadence Virtuoso — automate schematic, layout, and simulation across single or multi-server, single or multi-user environments.
+Bridge between LLM-Agent and Cadence Virtuoso. One agent controls one or more Virtuoso instances, locally or remotely.
 
 ### Why use this?
 
@@ -32,6 +32,7 @@ Bridge between LLM-Agent and Cadence Virtuoso — automate schematic, layout, an
 - Multi-profile SSH: connect to N design servers, each with independent tunnel
 - Run parallel simulations across servers and accounts
 - Foundation for scaling analog design automation across teams and compute resources
+- Verified across macOS, Windows, and Linux
 
 **3. AI-native** — Built for coding agents (Claude Code, Cursor, etc.) to drive Virtuoso.
 - CLI-first: `virtuoso-bridge start/status/restart`, no GUI needed

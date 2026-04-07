@@ -77,7 +77,7 @@
 
   <div class="hero">
     <p style="margin-bottom:24px"><img src="https://raw.githubusercontent.com/Arcadia-1/virtuoso-bridge-lite/main/assets/banner.svg" alt="virtuoso-bridge-lite" style="max-width:100%;border-radius:8px"/></p>
-    <p>Bridge between LLM-Agent and Cadence Virtuoso — automate schematic, layout, and simulation across single or multi-server, single or multi-user environments.</p>
+    <p>Bridge between LLM-Agent and Cadence Virtuoso. One agent controls one or more Virtuoso instances, locally or remotely.</p>
     <div class="hero-buttons">
       <a href="https://github.com/Arcadia-1/virtuoso-bridge-lite" class="btn btn-primary">GitHub</a>
       <a href="#getting-started" class="btn btn-secondary">Getting Started</a>
@@ -269,19 +269,23 @@ result = sim.<span class="fn">run_simulation</span>(<span class="str">"tb_inv.sc
     </div>
 
     <div class="api-group">
-      <h3>ADE Maestro control</h3>
-      <pre><code><span class="cmt"># Read design variables</span>
-client.<span class="fn">execute_skill</span>(<span class="str">'asiGetDesignVarList(asiGetCurrentSession())'</span>)
+      <h3>ADE Maestro (Assembler)</h3>
+      <pre><code><span class="kw">from</span> virtuoso_bridge.virtuoso.maestro <span class="kw">import</span> (
+    open_session, close_session, read_config, read_results,
+    run_simulation, wait_until_done, export_waveform,
+)
 
-<span class="cmt"># Set design variable</span>
-client.<span class="fn">execute_skill</span>(<span class="str">'maeSetVar("VDD" "0.85")'</span>)
+<span class="cmt"># Read existing simulation setup</span>
+session = <span class="fn">open_session</span>(client, <span class="str">"myLib"</span>, <span class="str">"myTB"</span>)
+config = <span class="fn">read_config</span>(client, session)
 
-<span class="cmt"># Read enabled analyses for a test</span>
-client.<span class="fn">execute_skill</span>(<span class="str">'maeGetEnabledAnalysis("tb_cmp_SA")'</span>)
+<span class="cmt"># Run simulation (non-blocking, LSCS parallel)</span>
+<span class="fn">run_simulation</span>(client)
+<span class="fn">wait_until_done</span>(client)  <span class="cmt"># axlSessionConnect callback, zero blocking</span>
 
-<span class="cmt"># Trigger simulation</span>
-client.<span class="fn">execute_skill</span>(<span class="str">'maeRunSimulation()'</span>)
-client.<span class="fn">execute_skill</span>(<span class="str">"maeWaitUntilDone('All)"</span>)</code></pre>
+<span class="cmt"># Collect results + export waveforms</span>
+results = <span class="fn">read_results</span>(client, session, lib=<span class="str">"myLib"</span>, cell=<span class="str">"myTB"</span>)
+<span class="fn">export_waveform</span>(client, session, <span class="str">'dB20(mag(v("/OUT")))'</span>, <span class="str">"gain.txt"</span>)</code></pre>
     </div>
 
     <div class="api-group">
