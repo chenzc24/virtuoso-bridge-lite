@@ -60,6 +60,31 @@ client.open_window(lib, cell, view="layout")     # open GUI window
 client.run_shell_command("ls /tmp/")             # run shell on remote
 ```
 
+## Printing multi-line text to CIW
+
+Sending multiple `printf` in a single `execute_skill()` loses newlines — the CIW concatenates everything on one line. To print multi-line text, write it as a Python multiline string and send one `execute_skill()` per line:
+
+```python
+text = """\
+========================================
+  Title goes here
+========================================
+  First paragraph line one.
+  First paragraph line two.
+
+  Second paragraph.
+========================================"""
+
+for line in text.splitlines():
+    client.execute_skill('printf("' + line + '\\n")')
+```
+
+Constraints:
+- **ASCII only** — emojis and CJK characters cause a JSON encoding error on the remote SKILL interpreter
+- **No unescaped SKILL special chars** in the text — if the line may contain `"` or `%`, escape them (`\\"`, `%%`) or use `load_il()` instead (see `03_load_il.py`)
+
+Full example: `examples/01_virtuoso/basic/02_ciw_print.py`
+
 ## References
 
 Load on demand — each contains detailed API docs and edge-case guidance:
@@ -80,9 +105,11 @@ Load on demand — each contains detailed API docs and edge-case guidance:
 
 ### `examples/01_virtuoso/basic/`
 - `01_execute_skill.py` — run arbitrary SKILL expressions
-- `02_load_il.py` — upload and load .il files
-- `03_list_library_cells.py` — list libraries and cells
-- `04_screenshot.py` — capture layout/schematic screenshots
+- `02_ciw_print.py` — print messages to CIW (one `execute_skill` per line)
+- `03_load_il.py` — upload and load .il files
+- `04_list_library_cells.py` — list libraries and cells
+- `05_multiline_skill.py` — multi-line SKILL with comments, loops, procedures
+- `06_screenshot.py` — capture layout/schematic screenshots
 
 ### `examples/01_virtuoso/schematic/`
 - `01a_create_rc_stepwise.py` — create RC schematic via operations

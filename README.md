@@ -95,126 +95,22 @@ defun(__pyOnData (id data)
 
 The divergence is in what's built on top: skillbridge stays thin — a Pythonic RPC client for interactive local use. virtuoso-bridge-lite adds SSH remote access, high-level layout/schematic APIs, Spectre simulation, and an AI-agent-ready harness.
 
-## Getting Started
-
-### Prerequisites
-
-1. **SSH**: `ssh my-server` must work in your terminal without a password prompt.
-2. **Virtuoso** (for SKILL execution): a Virtuoso process must be running on the remote (or local) machine. After starting the tunnel, load the bridge SKILL script in the CIW.
-3. **Spectre** (for simulation only): `spectre` must be on PATH in the remote shell, or set `VB_CADENCE_CSHRC` to a cshrc that adds Cadence tools to PATH.
-
-> Virtuoso and Spectre are **independent** — you can run Spectre simulations without loading the SKILL bridge in Virtuoso, and you can use the SKILL bridge without Spectre installed. `virtuoso-bridge status` reports both.
-
-### Step-by-step setup
-
-**1. Install**
+## Quick Start
 
 ```bash
-pip install -e .
+pip install -e .              # install
+virtuoso-bridge init          # generate .env template — fill in your SSH host
+virtuoso-bridge start         # start SSH tunnel
+virtuoso-bridge status        # verify connection
 ```
-
-**2. Generate config**
-
-```bash
-virtuoso-bridge init        # creates .env template in current directory
-```
-
-**3. Edit `.env`**
-
-Open the generated `.env` and fill in your connection details.
-
-> **Where to put `.env`:** The `.env` file can live in the virtuoso-bridge-lite directory or in your project root (if virtuoso-bridge-lite is cloned as a subdirectory). Both locations are searched automatically. When using virtuoso-bridge-lite inside a larger project, placing `.env` in the project root is recommended so that all tools can find it regardless of working directory.
-
-```dotenv
-VB_REMOTE_HOST=my-server              # SSH host alias from ~/.ssh/config
-VB_REMOTE_USER=username               # SSH username on the remote
-VB_REMOTE_PORT=65081                  # port for the bridge daemon on remote
-VB_LOCAL_PORT=65082                   # local port forwarded via SSH tunnel
-
-# Optional — only needed if `spectre` is not already on PATH in the remote shell.
-# VB_CADENCE_CSHRC=/path/to/.cshrc   # cshrc that sets up Cadence tools on the remote
-```
-
-**4. Start the bridge**
-
-```bash
-virtuoso-bridge start
-```
-
-**5. Load SKILL in Virtuoso CIW**
-
-On the remote machine, in the Virtuoso CIW (Command Interpreter Window), load the bridge SKILL file:
-
-```
-load("/path/to/virtuoso-bridge-lite/core/ramic_bridge.il")
-```
-
-**6. Verify**
-
-```bash
-virtuoso-bridge status      # checks SSH tunnel, remote host, Spectre license
-```
-
-**7. Connect from Python**
 
 ```python
 from virtuoso_bridge import VirtuosoClient
-
 client = VirtuosoClient.from_env()
-result = client.execute_skill("1+2")
-print(result)  # VirtuosoResult(status=SUCCESS, output='3')
+client.execute_skill("1+2")  # VirtuosoResult(status=SUCCESS, output='3')
 ```
 
-Done. For full API reference, see the [documentation site](https://virtuoso-bridge.tokenzhang.com).
-
-### Jump host setup
-
-If you access Virtuoso through a bastion/jump host, set both hosts in `.env`:
-
-```dotenv
-VB_REMOTE_HOST=compute-host   # the machine running Virtuoso (NOT the jump host)
-VB_JUMP_HOST=jump-host        # the bastion you SSH through
-```
-
-Common mistake: setting `VB_REMOTE_HOST` to the jump host. `VB_REMOTE_HOST` must be the machine where Virtuoso is actually running. Verify with `virtuoso-bridge status` — it checks the remote hostname matches.
-
-### Multi-profile setup
-
-To connect to multiple Virtuoso instances simultaneously, use the `-p` flag. Profile names are **case-sensitive** and appended as suffixes to env var names.
-
-Add profile-suffixed variables to your `.env`:
-
-```dotenv
-# Default (no profile)
-VB_REMOTE_HOST=server-a
-VB_REMOTE_USER=user1
-
-# Profile "worker1" — used with `-p worker1`
-VB_REMOTE_HOST_worker1=server-b
-VB_REMOTE_USER_worker1=user2
-VB_CADENCE_CSHRC_worker1=/path/to/.cshrc.worker1
-
-# Profile "worker2" — used with `-p worker2`
-VB_REMOTE_HOST_worker2=server-c
-VB_REMOTE_USER_worker2=user3
-VB_CADENCE_CSHRC_worker2=/path/to/.cshrc.worker2
-```
-
-Then start and use each profile independently:
-
-```bash
-virtuoso-bridge start -p worker1
-virtuoso-bridge start -p worker2
-virtuoso-bridge status -p worker1
-```
-
-```python
-from virtuoso_bridge.spectre import SpectreSimulator
-
-sim = SpectreSimulator.from_env(profile="worker1")
-```
-
-> **Note:** Profile suffixes are case-sensitive. `-p worker1` reads `VB_REMOTE_HOST_worker1`, not `VB_REMOTE_HOST_WORKER1`.
+For detailed setup (jump hosts, multi-profile, local mode), see [`AGENTS.md`](AGENTS.md).
 
 ## Architecture
 
@@ -230,33 +126,7 @@ Fully decoupled: VirtuosoClient works with any TCP endpoint — SSH tunnel, VPN,
 
 > Want to understand the raw mechanism? See [`core/`](core/) — the entire bridge distilled into 3 files (180 lines).
 
-### Local mode (no SSH)
-
-```python
-from virtuoso_bridge import VirtuosoClient
-
-bridge = VirtuosoClient.local(port=65432)
-bridge.execute_skill("1+2")
-```
-
-No tunnel, no `.env`, no SSH. Just load `core/ramic_bridge.il` in Virtuoso CIW and connect.
-
-## CLI
-
-```bash
-virtuoso-bridge init      # create .env template
-virtuoso-bridge start     # start SSH tunnel + deploy daemon
-virtuoso-bridge restart   # force-restart
-virtuoso-bridge status    # check tunnel + Virtuoso daemon + Spectre
-```
-
-## Build & Test
-
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-pytest
-```
+> Want to use Virtuoso locally without SSH? See [Local mode](AGENTS.md#local-mode) in AGENTS.md.
 
 ## Citation
 
