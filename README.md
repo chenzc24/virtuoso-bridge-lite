@@ -17,7 +17,7 @@
   <img src="https://img.shields.io/badge/AI%20Native-agent--driven-blueviolet" alt="AI Native"/>
 </p>
 
-Python ↔ Cadence Virtuoso bridge for AI agents — automate schematic, layout, and simulation across single or multi-server, single or multi-user environments.
+Bridge between LLM-Agent and Cadence Virtuoso — automate schematic, layout, and simulation across single or multi-server, single or multi-user environments.
 
 ### Why use this?
 
