@@ -17,7 +17,7 @@
   <img src="https://img.shields.io/badge/AI%20Native-agent--driven-blueviolet" alt="AI Native"/>
 </p>
 
-Control Cadence Virtuoso from anywhere, locally or remotely. Verified across macOS, Windows, and Linux.
+Python ↔ Cadence Virtuoso bridge for AI agents — automate schematic, layout, and simulation across single or multi-server, single or multi-user environments.
 
 ### Why use this?
 
@@ -25,7 +25,7 @@ Control Cadence Virtuoso from anywhere, locally or remotely. Verified across mac
 - **Three ways to program**: load `.il` files, execute inline SKILL, or use Python APIs — your choice
 - **Schematic**: create circuits, wire instances, read connectivity, import CDL
 - **Layout**: shapes, vias, routing, read-back geometry, mosaic arrays
-- **Maestro (ADE Assembler)**: read/write simulation setups, run simulations with non-blocking completion detection, collect results and export waveforms
+- **Maestro**: read/write simulation setups, run simulations with non-blocking completion detection, collect results and export waveforms
 - **Spectre**: standalone netlist-driven simulation with PSF result parsing
 
 **2. Multi-server, multi-user** — One machine controls multiple Virtuoso instances simultaneously.
