@@ -31,6 +31,8 @@ You control a remote Cadence Virtuoso through `virtuoso-bridge`. Python runs loc
 
 Always use the highest level that works. Drop to a lower level only when needed.
 
+**Never guess function names.** If the function isn't in the examples below, read the relevant `references/` file before writing the call. Fabricating a wrong name wastes time debugging in CIW.
+
 ### Four domains
 
 | Domain | What it does | Python package | API docs |
@@ -181,6 +183,24 @@ Load on demand — each contains detailed API docs and edge-case guidance:
 
 ## Common workflows
 
+### Find which library contains a cell
+
+`ddGetObj(cellName)` with a single argument returns nil — must iterate `ddGetLibList()`:
+
+```python
+r = client.execute_skill(f'''
+let((result)
+  result = nil
+  foreach(lib ddGetLibList()
+    when(ddGetObj(lib~>name "{CELL}")
+      result = cons(lib~>name result)))
+  result)
+''')
+# r.output e.g. '("2025_FIA")'
+```
+
+No need for a separate script — inline in any workflow that needs to locate a cell before operating on it.
+
 ### Read a design (schematic + maestro + netlist)
 
 ```python
@@ -217,6 +237,42 @@ client.execute_skill(
     f'maeCreateNetlistForCorner("{test}" "Nominal" "/tmp/nl_{CELL}" ?session "{session}")')
 client.download_file(f"/tmp/nl_{CELL}/netlist/input.scs", "output/netlist.scs")
 ```
+
+### Run a simulation
+
+**Follow this sequence exactly. Do not skip steps.**
+
+```python
+session = "fnxSession33"  # from find_open_session() or maeGetSessions()
+
+# 1. Set variables
+client.execute_skill(f'maeSetVar("CL" "1p" ?session "{session}")')
+
+# 2. Save before running — REQUIRED, skipping causes stale state
+client.execute_skill(
+    f'maeSaveSetup(?lib "{LIB}" ?cell "{CELL}" ?view "maestro" ?session "{session}")')
+
+# 3. Run (async — NEVER use ?waitUntilDone t, it deadlocks the event loop)
+r = client.execute_skill(f'maeRunSimulation(?session "{session}")', timeout=30)
+history = (r.output or "").strip('"')
+
+# 4. Wait — blocks until simulation finishes (GUI mode only)
+r = client.execute_skill("maeWaitUntilDone('All)", timeout=300)
+
+# 5. Check for GUI dialog blockage — if wait returned empty/nil,
+#    a dialog is blocking CIW. Try dismissing it:
+if not r.output or r.output.strip() in ("", "nil"):
+    client.execute_skill("hiFormDone(hiGetCurrentForm())", timeout=5)
+    # If still stuck, user must manually dismiss the dialog in Virtuoso
+
+# 6. Read results
+client.execute_skill(f'maeOpenResults(?history "{history}")', timeout=15)
+r = client.execute_skill(f'maeGetOutputValue("myOutput" "myTest")', timeout=30)
+value = float(r.output) if r.output else None
+client.execute_skill("maeCloseResults()", timeout=10)
+```
+
+**In optimization loops:** add `maeSaveSetup` and dialog-recovery in every iteration. GUI dialogs ("Specify history name", "No analyses enabled") block the entire SKILL channel — all subsequent `execute_skill` calls will timeout until the dialog is dismissed.
 
 ### Gotchas
 
