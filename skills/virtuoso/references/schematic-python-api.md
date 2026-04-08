@@ -12,42 +12,44 @@ client = VirtuosoClient.from_env()
 
 ## SchematicEditor (context manager)
 
-Declarative schematic editing — collects operations, executes them as a batch on `__exit__`, then runs `schCheck` + `dbSave` automatically.
+Collects SKILL commands, executes as a batch on `__exit__`, then runs `schCheck` + `dbSave` automatically.
 
 ```python
+from virtuoso_bridge.virtuoso.schematic import (
+    schematic_create_inst_by_master_name as inst,
+    schematic_create_pin as pin,
+    schematic_create_wire_between_instance_terms as wire,
+)
+
 with client.schematic.edit(lib, cell) as sch:
-    sch.add_instance(...)
-    sch.add_wire_between_instance_terms(...)
-    sch.add_pin(...)
+    sch.add(inst("analogLib", "vdc", "symbol", "V0", 0, 0, "R0"))
+    sch.add(wire("V0", "PLUS", "R0", "PLUS"))
+    sch.add(pin("OUT", 3.0, 0.5, "R0", direction="output"))
+    sch.add_net_label_to_transistor("M0", drain_net="OUT", gate_net="IN",
+        source_net="VSS", body_net="VSS")
     # schCheck + dbSave happen automatically on exit
 ```
 
-| Method | SKILL | Description |
-|--------|-------|-------------|
-| `edit(lib, cell, view="schematic", mode="w")` | `dbOpenCellViewByType` | Returns `SchematicEditor` context manager |
-
 ### SchematicEditor methods
 
-| Method | SKILL | Description |
-|--------|-------|-------------|
-| `add_instance(lib, cell, xy, orientation="R0", view="symbol", name="")` | `dbCreateInst` | Add instance by master name |
-| `add_wire(points)` | `schCreateWire` | Add wire from point list |
-| `add_label(xy, text, justification="lowerLeft", rotation="R0")` | `schCreateWireLabel` | Add wire label |
-| `add_pin(name, xy, orientation="R0", direction="inputOutput")` | `schCreatePin` | Add pin |
-| `add_pin_to_instance_term(inst, term, pin_name, *, direction, orientation)` | `schCreatePin` at terminal center | Add pin at instance terminal |
-| `add_wire_between_instance_terms(from_inst, from_term, to_inst, to_term)` | `schCreateWire` between terminal centers | Wire two terminals directly |
-| `add_net_label_to_instance_term(inst, term, net_name)` | `schCreateWire` + `schCreateWireLabel` | Labeled wire stub at terminal |
-| `add_net_label_to_transistor(inst, drain, gate, source, body)` | Multiple `schCreateWire` + `schCreateWireLabel` | Label all MOS terminals (D/G/S/B) |
+| Method | Description |
+|--------|-------------|
+| `add(skill_cmd)` | Queue any SKILL command string (from ops functions) |
+| `add_net_label_to_transistor(inst, drain_net, gate_net, source_net, body_net)` | Label MOS D/G/S/B terminals with net stubs |
 
-```python
-with client.schematic.edit("myLib", "myCell") as sch:
-    sch.add_instance("analogLib", "vdc", (0, 0), name="V0")
-    sch.add_instance("analogLib", "gnd", (0, -0.625), name="GND0")
-    sch.add_instance("analogLib", "res", (1.5, 0.5), orientation="R90", name="R0")
-    sch.add_wire_between_instance_terms("V0", "PLUS", "R0", "PLUS")
-    sch.add_pin("OUT", (3.0, 0.5))
-    sch.add_net_label_to_instance_term("R0", "MINUS", "OUT")
-```
+### SKILL builder functions (ops)
+
+Use these with `sch.add(...)`:
+
+| Function | SKILL | Description |
+|----------|-------|-------------|
+| `schematic_create_inst_by_master_name(lib, cell, view, name, x, y, orient)` | `dbOpenCellViewByType` + `dbCreateInst` | Place instance |
+| `schematic_create_wire(points)` | `schCreateWire` | Add wire from point list |
+| `schematic_create_wire_label(x, y, text, just, rot)` | `schCreateWireLabel` | Add wire label |
+| `schematic_create_pin(name, x, y, orient, *, direction)` | `schCreatePin` | Add pin |
+| `schematic_create_pin_at_instance_term(inst, term, pin, *, direction, orientation)` | `schCreatePin` at terminal center | Pin at terminal |
+| `schematic_create_wire_between_instance_terms(from_inst, from_term, to_inst, to_term)` | `schCreateWire` between terminal centers | Wire two terminals |
+| `schematic_label_instance_term(inst, term, net)` | Wire stub + label | Label terminal |
 
 ## SchematicOps (direct execution)
 

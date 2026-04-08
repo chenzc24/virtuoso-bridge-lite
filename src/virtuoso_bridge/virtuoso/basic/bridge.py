@@ -370,7 +370,7 @@ class VirtuosoClient(VirtuosoInterface):
     def get_current_design(self, timeout: int | None = None) -> tuple[str | None, str | None, str | None]:
         effective_timeout = timeout if timeout is not None else self._timeout
         skill = (
-            "ddGetObjReadPath(dbGetCellViewDdId(geGetEditCellView())))"
+            "ddGetObjReadPath(dbGetCellViewDdId(geGetEditCellView()))"
         )
         result = self.execute_skill(skill, timeout=effective_timeout)
         if result.status != ExecutionStatus.SUCCESS:

@@ -242,17 +242,23 @@ bridge.<span class="fn">execute_skill</span>(<span class="str">"1+2"</span>)</co
 
     <div class="api-group">
       <h3>Schematic editing</h3>
-      <pre><code><span class="kw">with</span> client.schematic.<span class="fn">edit</span>(<span class="str">"myLib"</span>, <span class="str">"myCell"</span>) <span class="kw">as</span> sch:
-    sch.<span class="fn">add_instance</span>(<span class="str">"analogLib"</span>, <span class="str">"vdc"</span>, (0,0), <span class="str">"V0"</span>, params={<span class="str">"vdc"</span>: <span class="str">"0.9"</span>})
-    sch.<span class="fn">add_wire</span>([(0, 0), (0, 0.5)])
-    sch.<span class="fn">add_pin</span>(<span class="str">"VDD"</span>, <span class="str">"inputOutput"</span>, (0, 1.0))
-    sch.<span class="fn">add_net_label_to_instance_term</span>(<span class="str">"V0"</span>, <span class="str">"PLUS"</span>, <span class="str">"VDD"</span>)
-    sch.<span class="fn">add_wire_between_instance_terms</span>(<span class="str">"V0"</span>, <span class="str">"MINUS"</span>, <span class="str">"GND0"</span>, <span class="str">"gnd!"</span>)
-    sch.<span class="fn">add_pin_to_instance_term</span>(<span class="str">"V0"</span>, <span class="str">"PLUS"</span>, <span class="str">"VIN"</span>, <span class="str">"input"</span>)</code></pre>
+      <pre><code><span class="kw">from</span> virtuoso_bridge.virtuoso.schematic <span class="kw">import</span> (
+    schematic_create_inst_by_master_name <span class="kw">as</span> inst,
+    schematic_create_pin <span class="kw">as</span> pin,
+    schematic_label_instance_term <span class="kw">as</span> label,
+)
+
+<span class="kw">with</span> client.schematic.<span class="fn">edit</span>(<span class="str">"myLib"</span>, <span class="str">"myCell"</span>) <span class="kw">as</span> sch:
+    sch.<span class="fn">add</span>(inst(<span class="str">"analogLib"</span>, <span class="str">"vdc"</span>, <span class="str">"symbol"</span>, <span class="str">"V0"</span>, 0, 0, <span class="str">"R0"</span>))
+    sch.<span class="fn">add</span>(label(<span class="str">"V0"</span>, <span class="str">"PLUS"</span>, <span class="str">"VDD"</span>))
+    sch.<span class="fn">add</span>(pin(<span class="str">"VDD"</span>, 0, 1.0, <span class="str">"R0"</span>, direction=<span class="str">"inputOutput"</span>))
+    sch.<span class="fn">add_net_label_to_transistor</span>(<span class="str">"M0"</span>,
+        drain_net=<span class="str">"OUT"</span>, gate_net=<span class="str">"IN"</span>,
+        source_net=<span class="str">"VSS"</span>, body_net=<span class="str">"VSS"</span>)</code></pre>
       <table>
         <tr><th>Method</th><th>Description</th></tr>
-        <tr><td><code>schematic.check(lib, cell)</code></td><td>Run schematic check (schCheck)</td></tr>
-        <tr><td><code>schematic.save(lib, cell)</code></td><td>Save schematic</td></tr>
+        <tr><td><code>sch.add(skill_cmd)</code></td><td>Queue a SKILL command (from ops functions)</td></tr>
+        <tr><td><code>sch.add_net_label_to_transistor(...)</code></td><td>Label MOS D/G/S/B terminals</td></tr>
       </table>
     </div>
 

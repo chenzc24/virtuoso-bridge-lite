@@ -30,17 +30,22 @@ def main() -> int:
 
     # --- Create schematic ---
     print("[schematic] Creating RC filter...")
+    from virtuoso_bridge.virtuoso.schematic import (
+        schematic_create_inst_by_master_name as inst,
+        schematic_create_wire_between_instance_terms as wire,
+        schematic_create_pin_at_instance_term as pin_at,
+    )
     with client.schematic.edit(LIB, CELL) as sch:
-        sch.add_instance("analogLib", "vdc", (0, 0), name="V0")
-        sch.add_instance("analogLib", "gnd", (0, -0.625), name="GND0")
-        sch.add_instance("analogLib", "res", (1.5, 0.5), orientation="R90", name="R0")
-        sch.add_instance("analogLib", "cap", (3.0, 0), name="C0")
-        sch.add_instance("analogLib", "gnd", (3.0, -0.625), name="GND1")
-        sch.add_wire_between_instance_terms("V0", "PLUS", "R0", "PLUS")
-        sch.add_wire_between_instance_terms("R0", "MINUS", "C0", "PLUS")
-        sch.add_wire_between_instance_terms("C0", "MINUS", "GND1", "gnd!")
-        sch.add_wire_between_instance_terms("V0", "MINUS", "GND0", "gnd!")
-        sch.add_pin_to_instance_term("C0", "PLUS", "OUT")
+        sch.add(inst("analogLib", "vdc", "symbol", "V0", 0, 0, "R0"))
+        sch.add(inst("analogLib", "gnd", "symbol", "GND0", 0, -0.625, "R0"))
+        sch.add(inst("analogLib", "res", "symbol", "R0", 1.5, 0.5, "R90"))
+        sch.add(inst("analogLib", "cap", "symbol", "C0", 3.0, 0, "R0"))
+        sch.add(inst("analogLib", "gnd", "symbol", "GND1", 3.0, -0.625, "R0"))
+        sch.add(wire("V0", "PLUS", "R0", "PLUS"))
+        sch.add(wire("R0", "MINUS", "C0", "PLUS"))
+        sch.add(wire("C0", "MINUS", "GND1", "gnd!"))
+        sch.add(wire("V0", "MINUS", "GND0", "gnd!"))
+        sch.add(pin_at("C0", "PLUS", "OUT"))
 
     # Set CDF parameters
     cv = "_rcfCv"

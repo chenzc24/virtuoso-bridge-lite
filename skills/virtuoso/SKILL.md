@@ -205,10 +205,15 @@ No need for a separate script — inline in any workflow that needs to locate a 
 ### Create a schematic
 
 ```python
+from virtuoso_bridge.virtuoso.schematic import (
+    schematic_create_inst_by_master_name as inst,
+    schematic_create_pin as pin,
+)
+
 with client.schematic.edit(LIB, CELL) as sch:
-    # 1. Place instances
-    sch.add_instance("tsmcN28", "pch_mac", (0, 1.5), name="MP0")
-    sch.add_instance("tsmcN28", "nch_mac", (0, 0), name="MN0")
+    # 1. Place instances — sch.add() queues SKILL commands
+    sch.add(inst("tsmcN28", "pch_mac", "symbol", "MP0", 0, 1.5, "R0"))
+    sch.add(inst("tsmcN28", "nch_mac", "symbol", "MN0", 0, 0, "R0"))
 
     # 2. Label MOS terminals with stubs — NOT manual add_wire
     sch.add_net_label_to_transistor("MP0",
@@ -217,9 +222,8 @@ with client.schematic.edit(LIB, CELL) as sch:
         drain_net="OUT", gate_net="IN", source_net="VSS", body_net="VSS")
 
     # 3. Add pins at circuit EDGE, not on terminals
-    #    Same net name as stub label → auto-connected
-    sch.add_pin("IN",  (-1.0, 0.75), direction="input")
-    sch.add_pin("OUT", (-1.0, 0.25), direction="output")
+    sch.add(pin("IN",  -1.0, 0.75, "R0", direction="input"))
+    sch.add(pin("OUT", -1.0, 0.25, "R0", direction="output"))
     # schCheck + dbSave happen automatically on context exit
 ```
 
@@ -313,13 +317,12 @@ LABELS = [
 
 with client.schematic.edit(LIB, CELL) as sch:
     for name, cell, col, row, orient in INSTANCES:
-        sch.add_instance(PDK, cell, (col * GRID, row * GRID),
-                         orientation=orient, name=name)
+        sch.add(inst(PDK, cell, "symbol", name, col * GRID, row * GRID, orient))
     for name, d, g, s, b in LABELS:
         sch.add_net_label_to_transistor(name,
             drain_net=d, gate_net=g, source_net=s, body_net=b)
     # Pins in leftmost column
-    sch.add_pin("VINP", (-1 * GRID, 1 * GRID), direction="input")
+    sch.add(pin("VINP", -1 * GRID, 1 * GRID, "R0", direction="input"))
     ...
 ```
 

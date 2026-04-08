@@ -66,9 +66,18 @@ def _repo_root() -> Path:
 
 
 def _load_repo_env() -> None:
+    # Try repo root first
     vb_env = _repo_root() / ".env"
     if vb_env.is_file():
         load_dotenv(vb_env, override=True)
+        return
+    # Search CWD and all parent directories for .env
+    cwd = Path.cwd().resolve()
+    for parent in [cwd, *cwd.parents]:
+        candidate = parent / ".env"
+        if candidate.is_file():
+            load_dotenv(candidate, override=True)
+            return
 
 
 def _fmt(seconds: float) -> str:
