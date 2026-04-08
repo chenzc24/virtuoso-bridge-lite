@@ -94,18 +94,24 @@ def set_spec(client: VirtuosoClient, name: str, test: str, *,
 def set_var(client: VirtuosoClient, name: str, value: str, *,
             type_name: str = "", type_value: str = "",
             session: str = "") -> str:
-    """maeSetVar — set a design variable or corner sweep.
+    """maeSetVar — set a design variable.
 
-    For global variable: set_var(client, "vdd", "1.35")
-    For corner sweep:    set_var(client, "vdd", "1.2 1.4",
-                                 type_name="corner", type_value='("myCorner")')
+    Global:    set_var(client, "vdd", "1.35")
+    Test-level: set_var(client, "f", "100M,2G,4G,8G",
+                        type_name="test", type_value='("IB_PSS")')
+    Corner:    set_var(client, "vdd", "1.2 1.4",
+                       type_name="corner", type_value='("myCorner")')
+
+    Note: if a test has a local variable, it overrides the global one.
+    Use type_name="test" to set test-level variables directly.
+    Comma-separated values create a parametric sweep.
     """
     s = f' ?session "{session}"' if session else ""
     parts = f'maeSetVar("{name}" "{value}"'
     if type_name:
         parts += f' ?typeName "{type_name}"'
     if type_value:
-        parts += f' ?typeValue `{type_value}'
+        parts += f" ?typeValue '{type_value}"
     parts += f'{s})'
     return _q(client, parts)
 
@@ -114,6 +120,26 @@ def get_var(client: VirtuosoClient, name: str, *, session: str = "") -> str:
     """maeGetVar — get the value of a design variable."""
     s = f' ?session "{session}"' if session else ""
     return _q(client, f'maeGetVar("{name}"{s})')
+
+
+def delete_var(client: VirtuosoClient, name: str, *,
+               test: str = "", session: str = "") -> str:
+    """Delete a design variable using axl* API.
+
+    Global:     delete_var(client, "f")
+    Test-level: delete_var(client, "f", test="IB_PSS")
+
+    Note: to delete a global variable, you must first delete it
+    from all tests that have a local copy.
+    """
+    sess = session or _q(client, 'car(maeGetSessions())')
+    if test:
+        expr = (f'axlRemoveElement(axlGetVar('
+                f'axlGetTest(axlGetMainSetupDB("{sess}") "{test}") "{name}"))')
+    else:
+        expr = (f'axlRemoveElement(axlGetVar('
+                f'axlGetMainSetupDB("{sess}") "{name}"))')
+    return _q(client, expr)
 
 
 # ---------------------------------------------------------------------------

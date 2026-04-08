@@ -40,6 +40,7 @@ Always use the highest level that works. Drop to a lower level only when needed.
 | **Schematic** | Create/edit schematics, wire instances, add pins | `client.schematic.*` | `references/schematic-python-api.md`, `references/schematic-skill-api.md` |
 | **Layout** | Create/edit layout, add shapes/vias/instances | `client.layout.*` | `references/layout-python-api.md`, `references/layout-skill-api.md` |
 | **Maestro** | Read/write ADE Assembler config, run simulations | `virtuoso_bridge.virtuoso.maestro` | `references/maestro-python-api.md`, `references/maestro-skill-api.md` |
+| **Netlist (si)** | Batch netlist generation without Maestro | `simInitEnvWithArgs` + `si` CLI | See "Batch Netlist (si)" section below |
 | **General** | File transfer, screenshots, raw SKILL, .il loading | `client.*` | See below |
 
 ## Before you start
@@ -201,6 +202,136 @@ let((result)
 
 No need for a separate script — inline in any workflow that needs to locate a cell before operating on it.
 
+### Create a schematic
+
+```python
+with client.schematic.edit(LIB, CELL) as sch:
+    # 1. Place instances
+    sch.add_instance("tsmcN28", "pch_mac", (0, 1.5), name="MP0")
+    sch.add_instance("tsmcN28", "nch_mac", (0, 0), name="MN0")
+
+    # 2. Label MOS terminals with stubs — NOT manual add_wire
+    sch.add_net_label_to_transistor("MP0",
+        drain_net="OUT", gate_net="IN", source_net="VDD", body_net="VDD")
+    sch.add_net_label_to_transistor("MN0",
+        drain_net="OUT", gate_net="IN", source_net="VSS", body_net="VSS")
+
+    # 3. Add pins at circuit EDGE, not on terminals
+    #    Same net name as stub label → auto-connected
+    sch.add_pin("IN",  (-1.0, 0.75), direction="input")
+    sch.add_pin("OUT", (-1.0, 0.25), direction="output")
+    # schCheck + dbSave happen automatically on context exit
+```
+
+**Key rules:**
+- **Use `add_net_label_to_transistor`** for MOS D/G/S/B — it auto-detects stub direction. Never manually `add_wire` between terminals.
+- **Pins go at the circuit edge**, not on instance terminals. They connect via matching net names.
+- **Delete before recreate** — if the cell already exists, `add_instance` accumulates on top of old instances:
+  ```python
+  client.execute_skill(f'ddDeleteObj(ddGetObj("{LIB}" "{CELL}"))')
+  ```
+- **CDF parameters** — two-step process:
+
+  **Step 1: Set values** with `schHiReplace` (Edit > Replace). Do NOT use `param~>value =` or `dbSetq` — they don't update display or derived params.
+  ```python
+  client.execute_skill(
+      'schHiReplace(?replaceAll t ?propName "cellName" ?condOp "==" '
+      '?propValue "pch_mac" ?newPropName "w" ?newPropValue "500n")')
+  ```
+
+  **Step 2: Trigger CDF callbacks** with `CCSinvokeCdfCallbacks` to update derived parameters (finger_width, display annotations, etc.). Use `?order` to run only the changed params — running all callbacks may fail on PDK-specific variables like `mdlDir`.
+  ```python
+  # Must load CCSinvokeCdfCallbacks.il first (one-time)
+  client.upload_file("reference/CCSinvokeCdfCallbacks.il", "/tmp/CCSinvokeCdfCallbacks.il")
+  client.execute_skill('load("/tmp/CCSinvokeCdfCallbacks.il")')
+
+  # Trigger only the callbacks you need
+  client.execute_skill('CCSinvokeCdfCallbacks(geGetEditCellView() ?order list("fingers"))')
+  ```
+
+  **Critical:** PDK devices have `nf` as read-only. Use `fingers` instead:
+  ```python
+  # ✅ "fingers" is editable, "nf" is not
+  client.execute_skill(
+      'schHiReplace(?replaceAll t ?propName "cellName" ?condOp "==" '
+      '?propValue "pch_mac" ?newPropName "fingers" ?newPropValue "4")')
+
+  # ❌ schHiReplace(...?newPropName "nf" ...) → SCH-1725 "not editable"
+  ```
+
+  **Why two steps:** `schHiReplace` changes the stored property but does NOT trigger CDF callbacks. Without callbacks, derived params (finger_width, m_ov_nf annotations) stay stale. `CCSinvokeCdfCallbacks(?order ...)` triggers only the specified callbacks, avoiding PDK errors from unrelated callbacks.
+
+  Or use the Python wrapper which handles both steps:
+  ```python
+  from virtuoso_bridge.virtuoso.schematic.params import set_instance_params
+  set_instance_params(client, "MP0", w="500n", l="30n", nf="4", m="2")
+  ```
+
+### Recreate a schematic from an existing design
+
+Read an existing schematic, map to a grid, redraw cleanly with stubs. Useful for learning placement from reference designs or generating variants.
+
+**Step 1: Read the original** — extract instances, connectivity, and positions:
+
+```python
+from virtuoso_bridge.virtuoso.schematic.reader import read_placement
+
+client.open_window(LIB, CELL, view="schematic")
+placement = read_placement(client)
+
+# Also read connectivity for net names
+client.load_il("virtuoso-bridge-lite/examples/01_virtuoso/assets/read_connectivity.il")
+r = client.execute_skill(f'ReadSchematic("{LIB}" "{CELL}")')
+```
+
+**Step 2: Map to grid** — analyze relative positions, assign (col, row) on a uniform grid:
+
+- Sort instances by y → assign rows (vertical layers)
+- Sort by x within each row → assign columns
+- Identify differential pairs (same row, symmetric x) → left R0, right MY
+- Choose GRID spacing (1.5 works well for stub labels without collision)
+
+**Step 3: Redraw** — place on grid with stubs and pins:
+
+```python
+GRID = 1.5
+
+# Define placement as (name, cell, col, row, orient)
+INSTANCES = [
+    ("M_TAIL", "nch_ulvt_mac", 1.5, 0, "R0"),   # centered
+    ("M_INP",  "nch_ulvt_mac", 1,   1, "R0"),    # left of pair
+    ("M_INN",  "nch_ulvt_mac", 2,   1, "MY"),    # right, mirrored
+    ...
+]
+
+# Define connectivity as (name, drain, gate, source, body)
+LABELS = [
+    ("M_TAIL", "VS",  "CLK",  "GND", "GND"),
+    ("M_INP",  "VN1", "VINP", "VS",  "GND"),
+    ...
+]
+
+with client.schematic.edit(LIB, CELL) as sch:
+    for name, cell, col, row, orient in INSTANCES:
+        sch.add_instance(PDK, cell, (col * GRID, row * GRID),
+                         orientation=orient, name=name)
+    for name, d, g, s, b in LABELS:
+        sch.add_net_label_to_transistor(name,
+            drain_net=d, gate_net=g, source_net=s, body_net=b)
+    # Pins in leftmost column
+    sch.add_pin("VINP", (-1 * GRID, 1 * GRID), direction="input")
+    ...
+```
+
+**Key rules:**
+- **Grid spacing 1.5** — enough room for stubs without collision. Too small (< 1.0) causes overlap, too large (> 2.0) wastes space.
+- **Differential pairs: R0/MY** — left device `R0`, right device `MY`, same row, symmetric columns.
+- **Vertical layering** — NMOS at bottom (low rows), PMOS at top (high rows). Within a stage: current sources → signal path → loads.
+- **Pins in a dedicated column** — always to the left of all transistors (e.g. col = -1).
+- **Output stages offset right** — place at col 5–6, separate from core.
+- **No wires** — only `add_net_label_to_transistor`. Same net name = same net.
+- **Verify with CIW screenshot** — check for PARSER WARNING or schCheck errors after every run.
+
 ### Read a design (schematic + maestro + netlist)
 
 ```python
@@ -274,12 +405,138 @@ client.execute_skill("maeCloseResults()", timeout=10)
 
 **In optimization loops:** add `maeSaveSetup` and dialog-recovery in every iteration. GUI dialogs ("Specify history name", "No analyses enabled") block the entire SKILL channel — all subsequent `execute_skill` calls will timeout until the dialog is dismissed.
 
+**Debug with screenshots:** if simulation appears stuck or results are unexpected, capture the Maestro window to see its current state:
+
+```python
+client.execute_skill('''
+hiWindowSaveImage(
+    ?target hiGetCurrentWindow()
+    ?path "/tmp/debug_maestro.png"
+    ?format "png"
+    ?toplevel t
+)
+''')
+client.download_file("/tmp/debug_maestro.png", "output/debug_maestro.png")
+```
+
+This reveals dialog boxes, error messages, or unexpected variable values that are invisible through the SKILL channel alone.
+
 ### Gotchas
 
 - **`csh()` returns `t`/`nil`**, not command output. Never use it to verify files. Use `download_file` (SSH/SCP) for all remote file operations.
 - **`procedurep()` returns `nil` for compiled functions** like `maeCreateNetlistForCorner`. The function still exists — test by calling it with wrong args instead.
 - **Netlist files are on the remote.** `maeCreateNetlistForCorner` writes to the remote filesystem. Always use `client.download_file()` to retrieve them.
 - **Design variables:** `maeGetSetup(?typeName "globalVar")` may return nil. Use `asiGetDesignVarList(asiGetCurrentSession())` instead.
+- **Global vs test-level variables:** `maeSetVar("f" "1G")` sets a global variable. To set a test-level variable, use `?typeName "test"`: `maeSetVar("f" "1G" ?typeName "test" ?typeValue '("IB_PSS"))`. If the test has a local variable, it overrides the global one.
+
+### axl* API — variable management
+
+The `axl*` functions operate on the Maestro setup database directly. Useful for deleting test-level variables that `maeDeleteVar` cannot reach.
+
+```scheme
+; Get the setup database handle
+axlGetMainSetupDB("fnxSession1")         ; => 7918 (integer handle)
+
+; Get a test handle
+axlGetTest(axlGetMainSetupDB("fnxSession1") "IB_PSS")   ; => 7936
+
+; Get a variable element from a test
+axlGetVar(axlGetTest(axlGetMainSetupDB("fnxSession1") "IB_PSS") "f")  ; => 7958
+
+; Delete a test-level variable
+axlRemoveElement(axlGetVar(axlGetTest(axlGetMainSetupDB("fnxSession1") "IB_PSS") "f"))
+; => t
+
+; Delete a global variable
+axlRemoveElement(axlGetVar(axlGetMainSetupDB("fnxSession1") "f"))
+```
+
+**Note:** To delete a global variable, you must first delete it from all tests that have a local copy. Use `axlGetTest` + `axlGetVar` + `axlRemoveElement` per test, then delete the global one.
+
+## Batch Netlist (si)
+
+Generate Spectre/HSPICE netlists without Maestro, using the `si` batch translator. Useful for automation and CI pipelines.
+
+### Generate si.env from CIW
+
+Don't write `si.env` manually — let Virtuoso generate it:
+
+```python
+# Generate si.env on remote
+client.execute_skill('sh("mkdir -p /tmp/si_run")')
+client.execute_skill(
+    'simInitEnvWithArgs("/tmp/si_run" "myLib" "myCell" "schematic" "spectre" nil)')
+
+# Download to inspect or modify
+client.download_file("/tmp/si_run/si.env", "output/si.env")
+```
+
+`simInitEnvWithArgs(runDir libName cellName viewName simulator nil)` — the last arg is unused, pass nil.
+
+### si.env fields
+
+| Field | Meaning | Example |
+|-------|---------|---------|
+| `simLibName` | Library name | `"2025_FIA"` |
+| `simCellName` | Cell name | `"_TB_INPUT_BUFFER_CASCODE_PSS"` |
+| `simViewName` | View | `"schematic"` |
+| `simSimulator` | Simulator type | `"spectre"` or `"hspice"` |
+| `simViewList` | View search order for netlisting | `'("spectre cmos_sch schematic veriloga")` |
+| `simStopList` | Stop descending at these views | `'("spectre")` |
+| `simNetlistHier` | Hierarchical netlist | `t` |
+| `nlDesignVarNameList` | Design variables to include | `'("VDD" "CL" "f")` |
+
+### Run si batch netlist
+
+```python
+# Run si on remote via bridge (csh syntax — use ; not &&)
+client.run_shell_command(
+    'mkdir -p /tmp/si_run ; '
+    'cp /path/to/si.env /tmp/si_run/ ; '
+    'cd /tmp/si_run ; '
+    'si -batch -cdslib /home/zhangz/tsmc28/RISCA/cds.lib -command nl')
+
+# Download the netlist
+client.download_file("/tmp/si_run/netlist", "output/si_netlist.scs")
+```
+
+- For Spectre: use `-command nl` (NOT `netlist` — that causes OSSHNL-510 errors)
+- For HSPICE/auCdl/Verilog: use `-command netlist`
+- `-cdslib` can be omitted if `cds.lib` exists in home directory
+- `cds.lib` path can be found via: `client.execute_skill('simplifyFilename("./cds.lib")')`
+- `run_shell_command` uses csh — returns `t`/`nil`, not stdout. Don't rely on output.
+
+Output file: `<runDir>/netlist` (a single file, not a directory).
+
+### si vs Maestro netlist
+
+| | si netlist | Maestro netlist (`maeCreateNetlistForCorner`) |
+|---|---|---|
+| **Circuit structure** | Yes | Yes (identical) |
+| **parameters line** | No (variables stay symbolic) | Yes (resolved to values) |
+| **model include** | No | Yes |
+| **Simulation commands** | No | Yes (analysis, options) |
+| **Requires Maestro** | No | Yes (open session) |
+
+si gives a pure circuit netlist. Maestro gives a ready-to-run simulation deck.
+
+### View netlist in Virtuoso GUI
+
+```scheme
+view("/tmp/si_run/netlist")
+```
+
+### From Maestro (alternative)
+
+If a Maestro session is open, `maeCreateNetlistForCorner` is simpler:
+
+```scheme
+maeCreateNetlistForCorner("IB_PSS" "Nominal" "/tmp/netlist_dir")
+; Output: /tmp/netlist_dir/netlist/input.scs
+
+; View in GUI
+view("/tmp/netlist_dir/netlist/input.scs")
+```
 
 ## Related skills
 

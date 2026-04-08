@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterable
+from typing import Any, TYPE_CHECKING, Iterable
 
 from virtuoso_bridge.virtuoso.ops import open_cell_view, save_current_cellview
 from virtuoso_bridge.virtuoso.schematic.ops import (
@@ -19,6 +19,7 @@ from virtuoso_bridge.virtuoso.schematic.ops import (
 
 if TYPE_CHECKING:
     from virtuoso_bridge import VirtuosoClient
+
 
 def _ensure_operation_response(response: Any, *, context: str) -> None:
     from virtuoso_bridge.models import ExecutionStatus, VirtuosoResult
