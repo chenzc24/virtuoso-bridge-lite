@@ -22,7 +22,7 @@ import sys
 import time
 
 DIALOG_TITLES = ["Save Changes", "Warning", "Error", "Confirm", "Question",
-                 "Discard", "Overwrite"]
+                 "Discard", "Overwrite", "Not Found", "Information"]
 
 
 def find_x11_env(user=None):
@@ -154,17 +154,25 @@ def screenshot_ppm(display, output_path):
     bpl = struct.unpack(">I", data[48:52])[0]
     pixels = data[hs:]
 
+    # XWD byte_order: 0=LSBFirst (RGB pixels), 1=MSBFirst (BGR pixels)
+    byte_order = struct.unpack(">I", data[28:32])[0]
+
     rgb = bytearray()
     for y_row in range(h):
         row = pixels[y_row * bpl: y_row * bpl + w * (bpp // 8)]
         for x_col in range(w):
             if bpp == 32:
-                b, g, r = ord(row[x_col*4]), ord(row[x_col*4+1]), ord(row[x_col*4+2])
+                p0, p1, p2 = ord(row[x_col*4]), ord(row[x_col*4+1]), ord(row[x_col*4+2])
             else:
-                b, g, r = ord(row[x_col*3]), ord(row[x_col*3+1]), ord(row[x_col*3+2])
-            rgb.append(r)
-            rgb.append(g)
-            rgb.append(b)
+                p0, p1, p2 = ord(row[x_col*3]), ord(row[x_col*3+1]), ord(row[x_col*3+2])
+            if byte_order == 0:  # LSBFirst: stored as R,G,B
+                rgb.append(p0)
+                rgb.append(p1)
+                rgb.append(p2)
+            else:  # MSBFirst: stored as B,G,R
+                rgb.append(p2)
+                rgb.append(p1)
+                rgb.append(p0)
 
     with open(output_path, "wb") as f:
         f.write("P6\n%d %d\n255\n" % (w, h))
