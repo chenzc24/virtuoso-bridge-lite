@@ -18,6 +18,7 @@ from virtuoso_bridge.virtuoso.maestro.writer import (
     # variables
     set_var,
     get_var,
+    delete_var,
     # parameters (parametric sweep)
     get_parameter,
     set_parameter,
@@ -68,6 +69,7 @@ __all__ = [
     # write - variables
     "set_var",
     "get_var",
+    "delete_var",
     # write - parameters
     "get_parameter",
     "set_parameter",

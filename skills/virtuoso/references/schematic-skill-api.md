@@ -3,63 +3,62 @@
 ## Edit Pattern
 
 ```python
+from virtuoso_bridge.virtuoso.schematic import (
+    schematic_create_inst_by_master_name as inst,
+    schematic_create_pin as pin,
+    schematic_create_wire_between_instance_terms as wire,
+    schematic_label_instance_term as label,
+)
+
 with client.schematic.edit(lib, cell) as sch:
-    sch.add_instance("analogLib", "vdc", (0, 0), "V0", params={"vdc": "0.9"})
-    sch.add_instance("analogLib", "gnd", (0, -0.5), "GND0")
-    sch.add_wire([(0, 0), (0, 0.5)])
-    sch.add_pin("VDD", "inputOutput", (0, 1.0))
-    sch.add_label("VDD", (0, 1.0))
-    sch.add_net_label_to_instance_term("V0", "PLUS", "VDD")
-    sch.add_wire_between_instance_terms("V0", "MINUS", "GND0", "gnd!")
+    sch.add(inst("analogLib", "vdc", "symbol", "V0", 0, 0, "R0"))
+    sch.add(inst("analogLib", "gnd", "symbol", "GND0", 0, -0.5, "R0"))
+    sch.add(wire("V0", "MINUS", "GND0", "gnd!"))
+    sch.add(label("V0", "PLUS", "VDD"))
+    sch.add(pin("VDD", 0, 1.0, "R0", direction="inputOutput"))
+    sch.add_net_label_to_transistor("M0", drain_net="OUT", gate_net="IN",
+        source_net="VSS", body_net="VSS")
 ```
 
-## Terminal-Aware Helpers
-
-These helpers resolve pin coordinates automatically — no need to guess positions:
-
-| Method | Purpose |
-|--------|---------|
-| `add_net_label_to_instance_term(inst, term, net)` | Attach a named net to an instance terminal |
-| `add_wire_between_instance_terms(inst1, term1, inst2, term2)` | Wire two instance terminals together |
-| `add_pin_to_instance_term(inst, term, pin_name, direction)` | Connect a top-level pin directly to an instance terminal |
-
-Prefer these over manual coordinate wiring — they read actual terminal positions from the database so connections are always correct.
-
-## Read / Query
-
-```python
-client.schematic.open(lib, cell)
-client.schematic.check(lib, cell)
-client.schematic.save(lib, cell)
-```
+`sch.add(skill_cmd)` queues SKILL commands; `schCheck` + `dbSave` run on context exit.
 
 ## CDF Parameter Setting
 
-The Python schematic API `params={}` dict sets parameters at creation time, but some CDF parameters (like PDK device parameters) need to be set via SKILL after the instance exists:
+Use `set_instance_params` for PDK devices — handles `schHiReplace` + CDF callback:
 
 ```python
-# Open cellview for editing
-client.execute_skill(f'_cv = dbOpenCellViewByType("{lib}" "{cell}" "schematic" nil "a")')
+from virtuoso_bridge.virtuoso.schematic.params import set_instance_params
 
-# Set a CDF parameter on instance R0
-client.execute_skill(
-    'cdfFindParamByName(cdfGetInstCDF('
-    'car(setof(i _cv~>instances i~>name == "R0")))'
-    ' "r")~>value = "1k"'
-)
-
-client.execute_skill('dbSave(_cv)')
+set_instance_params(client, "MP0", w="500n", l="30n", nf="4", m="2")
 ```
 
-Pattern: `cdfGetInstCDF(inst)` → `cdfFindParamByName(cdf, "paramName")` → `~>value = "newVal"`.
+For analogLib devices, direct CDF access works:
+
+```python
+client.execute_skill(
+    'cdfFindParamByName(cdfGetInstCDF('
+    'car(setof(i geGetEditCellView()~>instances i~>name == "R0")))'
+    ' "r")~>value = "1k"')
+client.execute_skill('dbSave(geGetEditCellView())')
+```
+
+## Read Placement
+
+```python
+from virtuoso_bridge.virtuoso.schematic.reader import read_placement
+
+p = read_placement(client, "myLib", "myCell")
+for i in p["instances"]:
+    print(i["name"], i["xy"], i["orient"])
+```
 
 ## Tips
 
-- Use terminal-aware helpers (`add_net_label_to_instance_term`, `add_wire_between_instance_terms`) instead of guessing pin coordinates
-- Use `add_pin_to_instance_term` to connect a top-level pin directly to an instance terminal
+- Use `add_net_label_to_transistor` for MOS D/G/S/B — auto-detects stub direction
+- Use `schematic_label_instance_term` / `schematic_create_wire_between_instance_terms` instead of guessing coordinates
 - **Check & save before simulation**: `schCheck` + `dbSave` — otherwise netlisting fails with a blocking dialog
 - **Schematic should be open in GUI** for Maestro to reference it correctly
 
 ## See also
 
-- `references/schematic-python-api.md` — Python API reference (SchematicEditor, SchematicOps, low-level builders)
+- `references/schematic-python-api.md` — Python API reference
