@@ -436,6 +436,106 @@ client.download_file("/tmp/debug_maestro.png", "output/debug_maestro.png")
 
 This reveals dialog boxes, error messages, or unexpected variable values that are invisible through the SKILL channel alone.
 
+### Copy a testbench to another library
+
+Workflow for replicating a testbench + Maestro setup in a new library.
+
+**Step 1: Copy the DUT cell**
+
+```python
+# dbCopyCellView needs a db object as first arg, not a string
+client.execute_skill(
+    'dbCopyCellView(dbOpenCellViewByType("SRC_LIB" "MY_DUT" "schematic") '
+    '"DST_LIB" "MY_DUT" "schematic")')
+client.execute_skill(
+    'dbCopyCellView(dbOpenCellViewByType("SRC_LIB" "MY_DUT" "symbol") '
+    '"DST_LIB" "MY_DUT" "symbol")')
+```
+
+**Step 2: Create the testbench schematic**
+
+Use `schematic.edit()` + `inst()` + `label_term()`. Then set source parameters
+per-instance via CDF — do NOT use `schHiReplace` with `cellName` matching, it
+hits ALL instances of that cell type.
+
+```python
+# CORRECT: set param on a specific instance by name
+client.execute_skill(
+    'let((cv inst cdf p) '
+    'cv=dbOpenCellViewByType("LIB" "CELL" "schematic" "schematic" "a") '
+    'inst=car(setof(x cv~>instances x~>name=="V8")) '
+    'cdf=cdfGetInstCDF(inst) p=cdfFindParamByName(cdf "vdc") '
+    'p~>value="Vcm")')
+
+# WRONG: schHiReplace with cellName match — sets ALL vsin instances to same value
+# schHiReplace(?replaceAll t ?propName "cellName" ?condOp "==" ?propValue "vsin" ...)
+```
+
+**Important:** Always use `dbOpenCellViewByType(lib cell "schematic" "schematic" "a")`
+instead of `geGetEditCellView()`. The latter depends on the current GUI window focus
+and fails when Maestro or other non-schematic windows are active.
+
+**Step 3: CDF parameter name gotchas**
+
+CDF param names differ from Spectre netlist param names:
+
+| analogLib cell | CDF param | Spectre netlist param |
+|----------------|-----------|----------------------|
+| vsin | `vdc` | `sinedc` (auto-mapped by netlister) |
+| vsin | `va` | `ampl` |
+| vsin | `sinephase` | `sinephase` |
+| vsin | `freq` | `freq` |
+| vdc | `vdc` | `dc` |
+| idc | `idc` | `dc` |
+| cap | `c` | `c` |
+
+Always check actual CDF param names with `cdfGetInstCDF(inst)~>parameters` before setting.
+
+**Step 4: Create Maestro**
+
+Use `.il` files for `maeSetAnalysis` (backtick syntax required for options lists).
+Python `execute_skill()` can't handle backtick + nested quotes reliably.
+
+```python
+# Create session + test
+session = open_session(client, LIB, CELL)  # creates empty maestro
+client.execute_skill(f'maeCreateTest("TEST_NAME" ?session "{session}" '
+                     f'?lib "{LIB}" ?cell "{CELL}" ?view "schematic")')
+
+# Set variables via Python
+maeSetVar("Fs", "1G", ?session session)
+
+# Set analysis via .il file (backtick syntax)
+client.load_il("setup_tran.il")  # contains maeSetAnalysis(test "tran" ?enable t ?options `(...))
+
+# Set outputs via Python (each needs a unique name, NOT nil)
+maeAddOutput("VOUTP", test, ?outputType "net" ?signalName "/VOUTP")
+```
+
+**Key pitfalls:**
+
+| Pitfall | Symptom | Fix |
+|---------|---------|-----|
+| `maeAddOutput` with nil name | `argument #1 should be a string` | Every output needs a string name |
+| `VAR("x")` in tran options | `Function 'VAR' is not defined` in Spectre | Use bare variable name `x` — Maestro resolves it |
+| `maeRunSimulation` returns nil | No GUI Maestro window open | Open with `deOpenCellView(... "maestro" ...)` first |
+| Delete cell with open Maestro | Crash / dialog storm | Clear schematic instances instead of deleting cell |
+| `geGetEditCellView` wrong window | `cdfGetInstCDF(nil)` errors | Use `dbOpenCellViewByType` with explicit lib/cell |
+| `maeOpenSetup` empty test list | `maeGetSetup` returns nil | Call `maeCreateTest` after `maeOpenSetup` |
+| `maeWaitUntilDone` returns nil | Background session, or sim finished fast | Poll spectre.out via SSH instead |
+
+**Step 5: Poll simulation completion (reliable method)**
+
+```python
+# Don't rely on maeWaitUntilDone — poll spectre.out via SSH
+import time
+for i in range(120):
+    r = runner.run_command(f'grep "completes" {sim_dir}/spectre.out 2>/dev/null || echo running')
+    if "completes" in r.stdout:
+        break
+    time.sleep(5)
+```
+
 ### SKILL channel timeout — diagnosis and recovery
 
 When `execute_skill()` times out, possible causes:
