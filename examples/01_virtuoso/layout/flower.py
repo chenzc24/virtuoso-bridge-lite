@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import math
-import os
 import sys
 from pathlib import Path
 
@@ -18,7 +17,10 @@ from virtuoso_bridge.virtuoso.layout.ops import (
     layout_fit_view as fit_view,
 )
 
-LIB = sys.argv[1] if len(sys.argv) >= 2 else os.environ.get("VB_DEFAULT_LIB", "PLAYGROUND_LLM")
+if len(sys.argv) < 2:
+    print(f"Usage: python {Path(__file__).name} <LIB>")
+    raise SystemExit(1)
+LIB = sys.argv[1]
 CELL = "flower"
 
 N_PETALS = 8

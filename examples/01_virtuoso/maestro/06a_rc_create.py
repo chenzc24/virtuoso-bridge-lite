@@ -8,7 +8,6 @@ Creates:
 Run this once, then use 06b to simulate and 06c to read results.
 """
 
-import os
 import sys
 from pathlib import Path
 
@@ -21,7 +20,10 @@ from virtuoso_bridge.virtuoso.maestro import (
     add_output, set_spec, set_var, save_setup,
 )
 
-LIB = sys.argv[1] if len(sys.argv) >= 2 else os.environ.get("VB_DEFAULT_LIB", "PLAYGROUND_LLM")
+if len(sys.argv) < 2:
+    print(f"Usage: python {Path(__file__).name} <LIB>")
+    raise SystemExit(1)
+LIB = sys.argv[1]
 CELL = "TB_RC_FILTER"
 
 

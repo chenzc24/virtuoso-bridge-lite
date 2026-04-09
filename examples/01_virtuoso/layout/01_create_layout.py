@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -19,7 +18,10 @@ from virtuoso_bridge.virtuoso.layout.ops import (
     layout_create_label as label,
 )
 
-lib_name = sys.argv[1] if len(sys.argv) >= 2 else os.environ.get("VB_DEFAULT_LIB", "PLAYGROUND_LLM")
+if len(sys.argv) < 2:
+    print(f"Usage: python {Path(__file__).name} <LIB>")
+    raise SystemExit(1)
+lib_name = sys.argv[1]
 cell_name = f"layout_demo_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 pdk_lib = "tsmcN28"
 

@@ -17,7 +17,6 @@ Note:
     internal Virtuoso process and will deadlock the CIW.
 """
 
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -34,7 +33,10 @@ from virtuoso_bridge.transport.remote_paths import (
 # Configuration
 # ---------------------------------------------------------------------------
 
-LIB = sys.argv[1] if len(sys.argv) >= 2 else os.environ.get("VB_DEFAULT_LIB", "PLAYGROUND_LLM")
+if len(sys.argv) < 2:
+    print(f"Usage: python {Path(__file__).name} <LIB>")
+    raise SystemExit(1)
+LIB = sys.argv[1]
 
 CDL = """\
 .SUBCKT cap_unit TOP BOT

@@ -6,7 +6,9 @@ making the build sequence explicit and easy to modify.
 
 Circuit: VDC (0.8 V) → R0 (res) → OUT → C0 (cap) → GND
 
-Set VB_DEFAULT_LIB to control which library the cell is created in.
+Usage::
+
+    python 01a_create_rc_stepwise.py <LIB>
 
 Prerequisites:
   - virtuoso-bridge service running (virtuoso-bridge start)
@@ -15,7 +17,6 @@ Prerequisites:
 
 from __future__ import annotations
 
-import os
 import pathlib
 import sys
 
@@ -35,7 +36,10 @@ def _decode(raw: str) -> str:
 
 
 def main() -> int:
-    lib  = sys.argv[1] if len(sys.argv) >= 2 else os.environ.get("VB_DEFAULT_LIB", "PLAYGROUND_LLM")
+    if len(sys.argv) < 2:
+        print(f"Usage: python {pathlib.Path(__file__).name} <LIB>")
+        return 1
+    lib = sys.argv[1]
     cell = f"rc_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     client = VirtuosoClient.from_env()
 

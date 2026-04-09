@@ -3,7 +3,7 @@
 
 Usage::
 
-    python 03_create_rc.py [LIB]   # default: PLAYGROUND_LLM
+    python 01b_create_rc_load_skill.py <LIB>
 
 Prerequisites:
   - virtuoso-bridge service running (virtuoso-bridge start)
@@ -11,7 +11,6 @@ Prerequisites:
 
 from __future__ import annotations
 
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -25,7 +24,10 @@ ASSETS = Path(__file__).resolve().parent.parent / "assets"
 
 
 def main() -> int:
-    lib  = sys.argv[1] if len(sys.argv) >= 2 else os.environ.get("VB_DEFAULT_LIB", "PLAYGROUND_LLM")
+    if len(sys.argv) < 2:
+        print(f"Usage: python {Path(__file__).name} <LIB>")
+        return 1
+    lib = sys.argv[1]
     cell = f"tmp_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     client = VirtuosoClient.from_env()
 
