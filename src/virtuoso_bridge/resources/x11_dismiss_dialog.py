@@ -20,8 +20,7 @@ import subprocess
 import sys
 import time
 
-DIALOG_TITLES = ["Save Changes", "Warning", "Error", "Confirm", "Question",
-                 "Discard", "Overwrite", "Not Found", "Information"]
+VIRTUOSO_WM_CLASSES = ["virtuoso", "libManager"]
 
 
 def find_x11_env(user=None):
@@ -73,49 +72,120 @@ def find_x11_env(user=None):
 
 
 def find_dialogs(display):
-    """Use xwininfo to find dialog windows matching known titles."""
+    """Find top-level dialog windows belonging to Virtuoso.
+
+    Only matches direct children of root window frames that contain a
+    virtuoso-class window. These are the actual dialog popups, not
+    toolbar/menu sub-widgets inside main windows.
+    """
     os.environ["DISPLAY"] = display
     try:
         tree = subprocess.check_output(
-            ["xwininfo", "-root", "-tree"],
+            ["xwininfo", "-root", "-children"],
             stderr=subprocess.PIPE
         ).decode("utf-8", "replace")
     except (subprocess.CalledProcessError, OSError) as e:
         print(json.dumps({"error": "xwininfo failed: %s" % str(e)}))
         return []
 
-    dialogs = []
+    # -children gives ONLY direct children of root (top-level frames).
+    # Each top-level frame wraps one app window. We need to check if the
+    # frame contains a virtuoso-class child that looks like a dialog.
+    # Use -tree on each candidate to inspect its children.
+
+    # Step 1: collect top-level frame IDs with small size (dialog candidates)
+    candidates = []
+    in_children = False
     for line in tree.splitlines():
-        for title in DIALOG_TITLES:
-            if ('"%s"' % title) in line:
-                parts = line.strip().split()
-                if len(parts) < 1:
-                    break
-                win_id = parts[0]
+        if "children" in line.lower() and ":" in line:
+            in_children = True
+            continue
+        if not in_children:
+            continue
+        parts = line.strip().split()
+        if not parts or not parts[0].startswith("0x"):
+            continue
+        win_id = parts[0]
+
+        # Parse inline geometry: NNNxMMM+X+Y
+        # e.g. "241x181+1009+340"
+        geo_w = geo_h = 0
+        for p in parts:
+            if "x" in p and "+" in p and p[0].isdigit():
                 try:
-                    info = subprocess.check_output(
-                        ["xwininfo", "-id", win_id],
-                        stderr=subprocess.PIPE
-                    ).decode("utf-8", "replace")
-                    x = y = w = h = 0
-                    for il in info.splitlines():
-                        il = il.strip()
-                        if il.startswith("Absolute upper-left X:"):
-                            x = int(il.split(":")[1].strip())
-                        elif il.startswith("Absolute upper-left Y:"):
-                            y = int(il.split(":")[1].strip())
-                        elif il.startswith("Width:"):
-                            w = int(il.split(":")[1].strip())
-                        elif il.startswith("Height:"):
-                            h = int(il.split(":")[1].strip())
-                    dialogs.append({
-                        "window_id": win_id,
-                        "title": title,
-                        "x": x, "y": y, "w": w, "h": h,
-                    })
-                except (subprocess.CalledProcessError, OSError):
-                    dialogs.append({"window_id": win_id, "title": title})
+                    size, _, pos = p.partition("+")
+                    geo_w, geo_h = [int(v) for v in size.split("x")]
+                except (ValueError, IndexError):
+                    pass
+
+        # Skip very large (main windows) or very tiny
+        if geo_w > 800 and geo_h > 600:
+            continue
+        if geo_w < 20 or geo_h < 20:
+            continue
+
+        candidates.append(win_id)
+
+    # Step 2: for each candidate, check if it contains a virtuoso-class child
+    dialogs = []
+    for win_id in candidates:
+        try:
+            subtree = subprocess.check_output(
+                ["xwininfo", "-id", win_id, "-tree"],
+                stderr=subprocess.PIPE
+            ).decode("utf-8", "replace")
+        except (subprocess.CalledProcessError, OSError):
+            continue
+
+        is_virtuoso = False
+        child_title = ""
+        for sl in subtree.splitlines():
+            for cls in VIRTUOSO_WM_CLASSES:
+                if ('"%s"' % cls) in sl:
+                    is_virtuoso = True
+                    # Extract title
+                    if '"' in sl:
+                        start = sl.index('"') + 1
+                        end = sl.index('"', start)
+                        child_title = sl[start:end]
+                    break
+            if is_virtuoso:
                 break
+
+        if not is_virtuoso:
+            continue
+
+        # Get precise geometry
+        try:
+            info = subprocess.check_output(
+                ["xwininfo", "-id", win_id],
+                stderr=subprocess.PIPE
+            ).decode("utf-8", "replace")
+            x = y = w = h = 0
+            mapped = False
+            for il in info.splitlines():
+                il = il.strip()
+                if il.startswith("Absolute upper-left X:"):
+                    x = int(il.split(":")[1].strip())
+                elif il.startswith("Absolute upper-left Y:"):
+                    y = int(il.split(":")[1].strip())
+                elif il.startswith("Width:"):
+                    w = int(il.split(":")[1].strip())
+                elif il.startswith("Height:"):
+                    h = int(il.split(":")[1].strip())
+                elif "Map State:" in il and "IsViewable" in il:
+                    mapped = True
+            if not mapped:
+                continue
+        except (subprocess.CalledProcessError, OSError):
+            continue
+
+        dialogs.append({
+            "window_id": win_id,
+            "title": child_title,
+            "x": x, "y": y, "w": w, "h": h,
+        })
+
     return dialogs
 
 
