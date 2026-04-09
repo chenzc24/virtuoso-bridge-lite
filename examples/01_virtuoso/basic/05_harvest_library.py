@@ -19,15 +19,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from _timing import format_elapsed
+from _timing import decode_skill, format_elapsed
 from virtuoso_bridge import VirtuosoClient
 
 IL_FILE = Path(__file__).resolve().parent.parent / "assets" / "harvest_library.il"
-
-
-def _decode(raw: str) -> str:
-    text = (raw or "").strip().strip('"')
-    return text.replace("\\n", "\n").replace('\\"', '"')
 
 
 def _skill_list(raw: str) -> list[str]:
@@ -48,7 +43,7 @@ def harvest_library(client: VirtuosoClient, lib_name: str) -> dict:
 
     # Get library root
     r = client.execute_skill(f'HarvestGetLibRoot("{lib_name}")', timeout=20)
-    lib_root = _decode(r.output)
+    lib_root = decode_skill(r.output)
     print(f"[harvest] Library root: {lib_root or '(not resolved)'}")
 
     # Get cells
@@ -91,7 +86,7 @@ def harvest_library(client: VirtuosoClient, lib_name: str) -> dict:
             r = client.execute_skill(
                 f'HarvestProbeSetups("{lib_name}" "{cell_name}" "{sv}")', timeout=30
             )
-            raw = _decode(r.output)
+            raw = decode_skill(r.output)
             setups_info = [line for line in raw.splitlines() if line.strip()] if raw else []
             cell_info["sessions"][sv] = {
                 "setups": setups_info,

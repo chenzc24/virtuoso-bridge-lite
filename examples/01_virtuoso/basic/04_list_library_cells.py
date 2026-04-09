@@ -14,13 +14,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from _timing import format_elapsed
+from _timing import decode_skill, format_elapsed
 from virtuoso_bridge import VirtuosoClient
-
-
-def _decode(raw: str) -> str:
-    text = (raw or "").strip().strip('"')
-    return text.replace("\\n", "\n").replace('\\"', '"')
 
 
 def main() -> int:
@@ -35,7 +30,7 @@ let((out)
   out)
 ''', timeout=20)
         print(f"[list libraries] [{format_elapsed(r.execution_time or 0.0)}]")
-        for lib in filter(None, _decode(r.output or "").splitlines()):
+        for lib in filter(None, decode_skill(r.output or "").splitlines()):
             print(f"  {lib}")
         return 0
 
@@ -53,7 +48,7 @@ let((lib out views)
   out)
 ''', timeout=20)
     print(f"[list cells] [{format_elapsed(r.execution_time or 0.0)}]")
-    for row in filter(None, _decode(r.output or "").splitlines()):
+    for row in filter(None, decode_skill(r.output or "").splitlines()):
         cell, _, views = row.partition("|views=")
         print(f"  {cell:<20} [{views.strip()}]")
     return 0
