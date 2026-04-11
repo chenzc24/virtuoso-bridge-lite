@@ -250,6 +250,14 @@ def cli_restart() -> int:
 
 # -- status -----------------------------------------------------------------
 
+def _print_load_hint(setup_path: str) -> None:
+    """Print CIW load command and .cdsinit auto-load suggestion."""
+    print(f"\n  Load in Virtuoso CIW:")
+    print(f"    load(\"{setup_path}\")")
+    print(f"\n  To auto-load on every Virtuoso startup, add to your .cdsinit:")
+    print(f"    load(\"{setup_path}\")")
+
+
 def _print_status() -> int:
     _load_repo_env()
     profile = _get_cli_profile()
@@ -270,6 +278,17 @@ def _print_status() -> int:
 
     is_local = _is_localhost(configured_host) if configured_host else False
 
+    # Infer setup_path from user config when state is unavailable
+    def _infer_setup_path() -> str | None:
+        user = configured_user
+        if not user:
+            import getpass
+            try:
+                user = getpass.getuser()
+            except Exception:
+                return None
+        return f"/tmp/virtuoso_bridge_{user}/virtuoso_bridge/virtuoso_setup.il"
+
     if is_local:
         print(f"\n[mode] local (no SSH tunnel)")
         if state:
@@ -289,6 +308,9 @@ def _print_status() -> int:
             setup_path = state.get("setup_path")
         else:
             setup_path = None
+
+    if not setup_path:
+        setup_path = _infer_setup_path()
 
     # Daemon (Virtuoso CIW)
     # For local mode, check daemon if we have state (don't require 'running')
@@ -321,15 +343,13 @@ def _print_status() -> int:
                     timeout=5,
                 )
             if not ok and setup_path:
-                print(f"\n  Daemon not responding. Load in Virtuoso CIW:")
-                print(f"    load(\"{setup_path}\")")
+                _print_load_hint(setup_path)
         except Exception as e:
             print(f"\n[daemon] error: {e}")
     elif not is_local and not running:
         print(f"\n[daemon] cannot check (tunnel not running)")
         if setup_path:
-            print(f"  After starting, load in Virtuoso CIW:")
-            print(f"    load(\"{setup_path}\")")
+            _print_load_hint(setup_path)
 
     # Spectre
     if is_local or running:
