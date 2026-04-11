@@ -387,6 +387,7 @@ class SSHRunner:
         if value is not None:
             self._tunnel_using_external = True
 
+    @staticmethod
     def can_reach_port(port: int) -> bool:
         """Check if localhost:port accepts TCP connections."""
         try:
