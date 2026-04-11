@@ -322,7 +322,7 @@ class SSHClient:
 
         python_cmd, python_major, python_minor = self._detect_remote_python()
         daemon_local = _find_ramic_bridge_daemon(
-            3 if (python_major, python_minor) >= (3, 9) else 2
+            3 if python_major >= 3 else 2
         )
         il_local = _find_ramic_bridge_il()
         daemon_filename = daemon_local.name
