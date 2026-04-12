@@ -1,4 +1,4 @@
-; RAMIC Bridge — minimal SKILL-side IPC
+; RAMIC Bridge — SKILL-side IPC via callback socket
 ; Load this in Virtuoso CIW: load("/path/to/ramic_bridge.il")
 
 ; Load paths from environment variables, with fallbacks
@@ -17,15 +17,41 @@ RBPort = if(getShellEnvVar("RB_PORT") then
             else
                 65432
             )
+RBCallbackPort = RBPort + 1
+
+procedure(RBSendCallback(msg)
+  "Sends result back to daemon via TCP callback socket.
+   Uses a temp file + background Python one-liner to avoid blocking CIW."
+  let((tmpFile port cmd)
+    tmpFile = sprintf(nil "/tmp/.ramic_cb_%d" ipcGetPid())
+    port = outfile(tmpFile "w")
+    when(port
+      fprintf(port "%s" msg)
+      close(port)
+    )
+    cmd = sprintf(nil "%s -c \"import socket,sys;f=open('%s');d=f.read();f.close();import os;os.remove('%s');s=socket.socket();s.connect(('127.0.0.1',%d));s.sendall(d.encode());s.close()\" &"
+      RBPython tmpFile tmpFile RBCallbackPort)
+    system(cmd)
+  )
+)
 
 procedure(RBIpcDataHandler(ipcId data)
-  let((result)
+  "Evaluates SKILL from daemon stdout, sends result via callback socket.
+   Using a callback socket instead of ipcWriteProcess avoids issues where
+   the ipcBeginProcess data handler stops firing after the first invocation
+   on certain Virtuoso/platform combinations (see issue #37)."
+  let((result resultStr)
     if(errset(result = evalstring(data)) then
-      ipcWriteProcess(ipcId sprintf(nil "%c%L%c" 2 result 30))
+      resultStr = sprintf(nil "OK %L" result)
     else
-      ipcWriteProcess(ipcId sprintf(nil "%c%L%c" 21 errset.errset 30))
+      resultStr = sprintf(nil "ERR %L" errset.errset)
     )
+    RBSendCallback(resultStr)
   )
+)
+
+procedure(RBIpcErrHandler(ipcId data)
+  printf("[RAMIC-ERR] %s\n" data)
 )
 
 procedure(RBIpcFinishHandler(ipcId data)
@@ -45,8 +71,8 @@ procedure(RBStart()
     RBIpc = ipcBeginProcess(
       sprintf(nil "/usr/bin/env -u LD_LIBRARY_PATH -u LD_PRELOAD stdbuf -oL %s -u %L %s %d"
         RBPython RBDPath "127.0.0.1" RBPort)
-      "" 'RBIpcDataHandler nil 'RBIpcFinishHandler "")
-    printf("[RAMIC] started on port %d\n" RBPort)
+      "" 'RBIpcDataHandler 'RBIpcErrHandler 'RBIpcFinishHandler "")
+    printf("[RAMIC] started on port %d (callback on %d)\n" RBPort RBCallbackPort)
   )
 )
 

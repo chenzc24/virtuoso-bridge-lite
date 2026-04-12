@@ -1,9 +1,11 @@
 #!/usr/bin/env python
-"""RAMIC Bridge Daemon — minimal TCP-to-Virtuoso IPC relay.
+"""RAMIC Bridge Daemon — TCP-to-Virtuoso IPC relay with callback socket.
 
-Launched by Virtuoso's ipcBeginProcess(). Receives SKILL commands over TCP,
-writes them to stdout (→ Virtuoso), reads results from stdin (← Virtuoso),
-sends results back over TCP.
+Launched by Virtuoso's ipcBeginProcess(). Receives SKILL commands over TCP
+(port N), writes them to stdout (→ Virtuoso). Results are received via a
+callback socket (port N+1) instead of stdin, which avoids issues where the
+ipcBeginProcess data handler stops firing after the first invocation on
+certain Virtuoso/platform combinations (see issue #37).
 
 Usage (called by ramic_bridge.il, not manually):
     python ramic_daemon.py 127.0.0.1 65432
@@ -21,7 +23,7 @@ import re
 HOST = sys.argv[1]
 PORT = int(sys.argv[2])
 
-# Non-blocking stdin (Virtuoso's IPC pipe)
+# Non-blocking stdin (Virtuoso's IPC pipe) — kept for compatibility
 fcntl.fcntl(sys.stdin.fileno(), fcntl.F_SETFL,
             fcntl.fcntl(sys.stdin.fileno(), fcntl.F_GETFL) | os.O_NONBLOCK)
 
@@ -30,30 +32,40 @@ NAK = b'\x15'  # start-of-result (error)
 RS  = b'\x1e'  # end-of-result
 
 
+# Callback socket: Virtuoso sends results here instead of via stdin pipe
+CALLBACK_PORT = PORT + 1
+_cb_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+_cb_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+_cb_server.bind((HOST, CALLBACK_PORT))
+_cb_server.listen(1)
+_cb_server.settimeout(60)
+
+
 def read_result():
-    """Read one delimited result from Virtuoso via stdin."""
-    buf = bytearray()
-    started = False
-    while True:
-        try:
-            ch = sys.stdin.read(1)
-            if not ch:
-                time.sleep(0.001)
-                continue
-            if not started:
-                if ch in (STX, NAK, '\x02', '\x15'):
-                    started = True
-                    buf.extend(ch.encode('latin1') if isinstance(ch, str) else ch)
-                continue
-            if ch in (RS, '\x1e'):
+    """Read result from Virtuoso via callback socket.
+
+    The SKILL-side RBIpcDataHandler evaluates the expression and sends
+    the result back as 'OK <value>' or 'ERR <msg>' over a TCP connection
+    to the callback port.
+    """
+    try:
+        conn, _ = _cb_server.accept()
+        data = b""
+        while True:
+            chunk = conn.recv(65536)
+            if not chunk:
                 break
-            buf.extend(ch.encode('latin1') if isinstance(ch, str) else ch)
-        except IOError as e:
-            if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
-                time.sleep(0.001)
-                continue
-            raise
-    return bytes(buf)
+            data += chunk
+        conn.close()
+        text = data.decode('utf-8', errors='replace').strip()
+        if text.startswith("OK "):
+            return STX + text[3:].encode('utf-8')
+        elif text.startswith("ERR "):
+            return NAK + text[4:].encode('utf-8')
+        else:
+            return STX + text.encode('utf-8')
+    except socket.timeout:
+        return NAK + b"timeout waiting for Virtuoso callback"
 
 
 _BLOCKED_FNS = re.compile(
@@ -61,8 +73,14 @@ _BLOCKED_FNS = re.compile(
 )
 
 
+_SKIP_CHECK = os.environ.get("RB_UNSAFE", "").lower() in ("1", "true", "yes")
+
+
 def _check_skill(skill: str) -> None:
-    """Reject SKILL code that calls dangerous shell-access functions."""
+    """Reject SKILL code that calls dangerous shell-access functions.
+    Disable with environment variable RB_UNSAFE=1."""
+    if _SKIP_CHECK:
+        return
     # Strip string literals so we don't false-positive on quoted names.
     stripped = re.sub(r'"[^"]*"', '""', skill)
     m = _BLOCKED_FNS.search(stripped)
@@ -90,11 +108,11 @@ def handle(conn):
 
     _check_skill(skill)
 
-    # Send SKILL to Virtuoso
-    sys.stdout.write(skill)
+    # Send SKILL to Virtuoso (newline required — ipcBeginProcess is line-based)
+    sys.stdout.write(skill + '\n')
     sys.stdout.flush()
 
-    # Read result
+    # Read result via callback socket
     result = read_result()
     conn.sendall(result)
 
