@@ -218,11 +218,22 @@ set_sim_option(client, "TRAN2", '(("temp" "85"))')
 
 | Python | SKILL | Description |
 |--------|-------|-------------|
-| `set_corner(client, name, *, disable_tests="", session="")` | `maeSetCorner` | Create/modify corner |
+| `set_corner(client, name, *, disable_tests="", session="")` | `maeSetCorner` | Create/modify corner (empty) |
+| `setup_corner(client, name, *, model_file="", model_section="", variables={}, session="")` | `maeSetCorner` + `maeSetVar` + `axl*` | **Recommended.** Create fully configured corner with model file, section, and variables — no XML editing |
 | `load_corners(client, filepath, *, sections="corners", operation="overwrite")` | `maeLoadCorners` | Load corners from CSV |
 
 ```python
+# Create a fully configured corner (recommended)
+setup_corner(client, "tt_25",
+             model_file="/path/to/mypdk.scs",
+             model_section="tt",
+             variables={"temperature": "25", "vdd": "1.2"},
+             session=session)
+
+# Create empty corner only
 set_corner(client, "myCorner", disable_tests='("AC" "TRAN")')
+
+# Load corners from CSV
 load_corners(client, "my_corners.csv")
 ```
 

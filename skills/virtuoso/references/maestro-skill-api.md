@@ -207,28 +207,49 @@ maeSetVar("c_val" "1p,100f" ?session "fnxSession4")
 
 ### Corners
 
-Corner management has limited SKILL API support. `maeSetCorner` can only create/enable/disable corners. Model files and variables must be set by editing `maestro.sdb` XML directly.
-
-#### Read corners
-
-Corners are stored in `maestro.sdb` XML. Download and parse:
-
-```python
-client.download_file(f'{maestro_dir}/maestro.sdb', '/tmp/maestro.sdb')
-# Parse <corner enabled="1">name ... </corner> blocks
-# Each corner has: <vars>, <models> sub-elements
-```
-
 #### Create corner (empty)
 
 ```scheme
-; Creates corner with no model/var — only ?enabled is supported
 maeSetCorner("tt_25" ?enabled t)
 ```
 
-#### Create corner with model + temperature
+**Note:** `maeSetCorner` only accepts `?enabled` and `?disableTests`. Keywords like `?temperature`, `?model`, `?modelFile`, `?modelSection` do NOT work.
 
-Full corners (with model file and variables) require editing `maestro.sdb` XML. Close the maestro session first, then insert a corner XML block before `</corners>`:
+#### Create corner with model + temperature (pure SKILL API)
+
+Full corners — with model files, variables, and temperature — can be set up entirely via SKILL using `maeSetVar` (with `?typeName "corner"`) and the `axl*` setup-DB functions. No XML editing required:
+
+```scheme
+; 1. Open maestro session
+sess = maeOpenSetup(libName cellName "maestro" ?mode "a")
+
+; 2. Create or select the corner
+maeSetCorner("tt_25" ?session sess)
+
+; 3. Set corner-specific variables (temperature, voltages, etc.)
+maeSetVar("temperature" "25" ?typeName "corner" ?typeValue '("tt_25") ?session sess)
+maeSetVar("vdd" "1.2" ?typeName "corner" ?typeValue '("tt_25") ?session sess)
+
+; 4. Set model file + section via axl* setup-DB API
+sdb  = axlGetMainSetupDB(sess)
+corn = axlGetCorner(sdb "tt_25")
+model = axlPutModel(corn "mypdk.scs")
+axlSetModelFile(model "/path/to/model/mypdk.scs")
+axlSetModelSection(model "tt")
+
+; 5. Save and close
+maeSaveSetup(?lib libName ?cell cellName ?view "maestro" ?session sess)
+maeCloseSession(?session sess)
+```
+
+Key points:
+- `maeSetVar` with `?typeName "corner"` and `?typeValue '("corner_name")` binds a variable to a specific corner
+- `axlGetMainSetupDB` / `axlGetCorner` / `axlPutModel` provide direct access to the corner's model configuration
+- This approach keeps the session open throughout — no need to close/edit XML/reopen
+
+#### Alternative: XML editing (legacy approach)
+
+If the `axl*` functions are unavailable (older Virtuoso versions), corners can also be configured by editing `maestro.sdb` XML directly. Close the maestro session first, then insert a corner XML block before `</corners>`:
 
 ```xml
 <corner enabled="1">tt_25
@@ -248,18 +269,28 @@ Full corners (with model file and variables) require editing `maestro.sdb` XML. 
 </corner>
 ```
 
-Python helper to insert corners (runs on remote via `upload_file` + `run_shell_command`):
-
 ```python
 # 1. Close maestro session
 client.execute_skill('MaestroClose("myLib" "myCell")')
 
 # 2. Edit sdb on remote (python2 script uploaded and executed)
 # Insert new corner XML blocks before first </corners> tag
-# See edit_sdb.py pattern: read lines, insert before </corners>, write back
 
 # 3. Reopen maestro to load changes
 client.execute_skill('MaestroOpen("myLib" "myCell")')
+```
+
+#### Read corners
+
+```scheme
+maeGetSetup(?session sess ?typeName "corners")
+```
+
+Alternatively, corners are stored in `maestro.sdb` XML and can be parsed directly:
+
+```python
+client.download_file(f'{maestro_dir}/maestro.sdb', '/tmp/maestro.sdb')
+# Parse <corner enabled="1">name ... </corner> blocks
 ```
 
 #### Enable / Disable corner
@@ -275,15 +306,6 @@ maeSetCorner("tt_25" ?enabled nil)  ; disable
 maeDeleteCorner("tt_25")
 maeSaveSetup()  ; persist deletion
 ```
-
-**Note:** `maeDeleteCorner` works in memory. `maeSaveSetup` persists to sdb. If the corner was inserted by direct sdb edit without reopening maestro first, the deletion may not take effect — always reopen maestro after sdb edits before using mae* functions.
-
-#### Explored but unsupported keywords
-
-`maeSetCorner` only accepts `?enabled`. These keywords do NOT work:
-`?temperature`, `?model`, `?modelFile`, `?modelSection`, `?vars`, `?models`, `?varList`, `?file`, `?section`, `?copy`, `?copyFrom`
-
-`maeLoadCorners(filepath)` accepts a file path but does not import corners in practice (returns nil silently).
 
 ### Environment Options (Model Files)
 

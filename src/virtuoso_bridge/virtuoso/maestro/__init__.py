@@ -29,6 +29,7 @@ from virtuoso_bridge.virtuoso.maestro.writer import (
     set_sim_option,
     # corners
     set_corner,
+    setup_corner,
     load_corners,
     # run mode / job control
     set_current_run_mode,
@@ -83,6 +84,7 @@ __all__ = [
     "set_sim_option",
     # write - corners
     "set_corner",
+    "setup_corner",
     "load_corners",
     # write - run mode / job control
     "set_current_run_mode",

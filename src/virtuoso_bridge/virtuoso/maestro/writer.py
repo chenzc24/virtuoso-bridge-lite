@@ -223,6 +223,52 @@ def set_corner(client: VirtuosoClient, name: str, *,
     return _q(client, f'maeSetCorner("{name}"{dt}{s})')
 
 
+def setup_corner(client: VirtuosoClient, name: str, *,
+                 model_file: str = "", model_section: str = "",
+                 variables: dict[str, str] | None = None,
+                 session: str = "") -> str:
+    """Create a fully configured corner with model file and variables.
+
+    Uses maeSetCorner + maeSetVar (for corner variables) + axl* setup-DB API
+    (for model file/section). No XML editing required.
+
+    Args:
+        name: Corner name, e.g. "tt_25"
+        model_file: Path to model file, e.g. "/path/to/mypdk.scs"
+        model_section: Model section name, e.g. "tt"
+        variables: Corner-specific variables, e.g. {"temperature": "25", "vdd": "1.2"}
+        session: Maestro session ID
+    """
+    s = f' ?session "{session}"' if session else ""
+
+    # Create the corner
+    set_corner(client, name, session=session)
+
+    # Set corner-specific variables
+    if variables:
+        for var_name, var_value in variables.items():
+            _q(client,
+               f'maeSetVar("{var_name}" "{var_value}" '
+               f'?typeName "corner" ?typeValue \'("{name}"){s})')
+
+    # Set model file + section via axl* setup-DB API
+    if model_file:
+        sess_id = session or _q(client, "car(maeGetSessions())")
+        model_name = model_file.rsplit("/", 1)[-1] if "/" in model_file else model_file
+        expr = (
+            f'let((sdb corn model) '
+            f'sdb = axlGetMainSetupDB("{sess_id}") '
+            f'corn = axlGetCorner(sdb "{name}") '
+            f'model = axlPutModel(corn "{model_name}") '
+            f'axlSetModelFile(model "{model_file}") '
+            f'{f"""axlSetModelSection(model "{model_section}") """ if model_section else ""}'
+            f'model)'
+        )
+        _q(client, expr)
+
+    return name
+
+
 def load_corners(client: VirtuosoClient, filepath: str, *,
                  sections: str = "corners",
                  operation: str = "overwrite") -> str:
