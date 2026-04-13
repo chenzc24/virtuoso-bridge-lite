@@ -133,6 +133,15 @@ Constraints:
 > `python -c "..."` has three layers of quoting (shell + Python + SKILL). `\\n` easily becomes `\\\\n`, causing `printf` to silently produce no output.
 > Always write code to a `.py` file and run `python script.py` -- only two quoting layers (Python + SKILL), matching the examples.
 
+### Runtime script storage
+
+When the agent needs to generate temporary runtime scripts, always use a fixed workspace folder instead of scattering files.
+
+- **Local runtime Python scripts**: write to `output/runtime_scripts/`
+- **Remote temporary files for Virtuoso/SKILL**: write to `/tmp/vb_runtime_scripts/`
+- **Filename format**: `<timestamp>_<task>.<ext>` (example: `20260409_154210_ciw_print.py`)
+- **Cleanup**: delete temporary runtime scripts after successful execution unless user asks to keep them for debugging
+
 Full example: `examples/01_virtuoso/basic/02_ciw_print.py`
 
 ## References
