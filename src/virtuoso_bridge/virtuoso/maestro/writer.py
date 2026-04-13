@@ -4,7 +4,12 @@ All functions take a session string and call mae* SKILL functions.
 They return the raw SKILL output string.
 """
 
+import logging
+
 from virtuoso_bridge import VirtuosoClient
+
+
+logger = logging.getLogger(__name__)
 
 
 def _q(client: VirtuosoClient, expr: str, timeout: int | None = None) -> str:
@@ -363,6 +368,77 @@ def wait_until_done(client: VirtuosoClient, timeout: int = 600,
     raise TimeoutError(f"Simulation did not finish within {timeout}s")
 
 
+def _strip_skill_atom(raw: str) -> str:
+    return (raw or "").strip().strip('"')
+
+
+def _diagnose_run_not_started(client: VirtuosoClient, session: str) -> dict[str, str]:
+    """Collect quick diagnostics when maeRunSimulation returns nil."""
+    info: dict[str, str] = {
+        "session": session or "",
+        "test": "",
+        "enabled_analyses": "",
+        "is_explorer_window": "unknown",
+        "current_form": "",
+    }
+
+    try:
+        test = _strip_skill_atom(_q(client, f'car(maeGetSetup(?session "{session}"))'))
+        if test and test != "nil":
+            info["test"] = test
+    except Exception:  # noqa: BLE001
+        pass
+
+    if info["test"]:
+        try:
+            # Best-effort probe: some older Virtuoso/Maestro environments may not
+            # expose maeGetEnabledAnalysis, so keep diagnostics partial on failure.
+            enabled = _q(
+                client,
+                f'maeGetEnabledAnalysis("{info["test"]}" ?session "{session}")',
+            )
+            info["enabled_analyses"] = (enabled or "").strip()
+        except Exception:  # noqa: BLE001
+            pass
+
+    try:
+        is_explorer = _q(
+            client,
+            'let((s) s = car(errset(sevSession(hiGetCurrentWindow()))) if(s then "t" else "nil"))',
+        )
+        info["is_explorer_window"] = _strip_skill_atom(is_explorer)
+    except Exception:  # noqa: BLE001
+        pass
+
+    try:
+        form = _q(client, 'let((f) f = hiGetCurrentForm() when(f f~>name))')
+        info["current_form"] = _strip_skill_atom(form)
+    except Exception:  # noqa: BLE001
+        pass
+
+    return info
+
+
+def _try_recover_blocking_form(client: VirtuosoClient, info: dict[str, str]) -> bool:
+    """Best-effort unblock if a modal form is active. Returns True if attempted."""
+    form_name = info.get("current_form", "")
+    if not form_name or form_name == "nil":
+        return False
+
+    try:
+        # First try SKILL-side dismissal for current modal form.
+        _q(client, 'let((f) f = hiGetCurrentForm() when(f hiFormDone(f)) t)')
+    except Exception:  # noqa: BLE001
+        pass
+
+    try:
+        # If SKILL channel is partially blocked, use X11 fallback.
+        client.dismiss_dialog()
+    except Exception:  # noqa: BLE001
+        pass
+    return True
+
+
 def run_and_wait(client: VirtuosoClient, *, session: str = "",
                  timeout: int = 600) -> tuple[str, str]:
     """Run simulation and wait for completion without blocking SKILL.
@@ -395,9 +471,43 @@ procedure(_vb_sim_done_{nonce}(session runID)
   printf("[%s sim done] run %L\\n" nth(2 parseString(getCurrentTime())) runID))
 ''')
 
-    # Start simulation with callback — atomic, no race condition
+    # Start simulation with callback — atomic, no race condition.
+    # If Virtuoso returns nil here, no run was started and the callback
+    # can never fire, so fail fast instead of entering endless marker polling.
     history = run_simulation(client, session=session,
                              callback=f"_vb_sim_done_{nonce}")
+    history_name = _strip_skill_atom(history)
+    if not history_name or history_name == "nil":
+        info = _diagnose_run_not_started(client, session)
+        recovered = _try_recover_blocking_form(client, info)
+
+        # One retry after recovery if we had an active modal form.
+        if recovered:
+            history = run_simulation(client, session=session,
+                                     callback=f"_vb_sim_done_{nonce}")
+            history_name = _strip_skill_atom(history)
+
+        if not history_name or history_name == "nil":
+            runner.run_command(f"rm -f {marker}", timeout=10)
+            test = info.get("test", "") or "<unknown>"
+            analyses = info.get("enabled_analyses", "") or "<unknown>"
+            explorer = info.get("is_explorer_window", "unknown")
+            form = info.get("current_form", "") or "<none>"
+            extra = (
+                f"session={session}, test={test}, enabled_analyses={analyses}, "
+                f"explorer_window={explorer}, current_form={form}."
+            )
+            logger.warning(
+                "Simulation did not start after diagnostics/recovery attempt: %s",
+                extra,
+            )
+            raise RuntimeError(
+                "maeRunSimulation returned nil (simulation not started). "
+                "If this is ADE Explorer, use Explorer run path "
+                "(sevRun(sevSession(window))) instead of maeRunSimulation. "
+                "Also verify at least one analysis is enabled and no modal dialog "
+                "is blocking the GUI. " + extra
+            )
 
     # Poll marker via SSH (SKILL channel stays free)
     status = wait_until_done(client, timeout=timeout, _marker=marker)
