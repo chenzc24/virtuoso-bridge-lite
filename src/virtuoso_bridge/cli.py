@@ -817,15 +817,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _make_stdio_safe() -> None:
     # Window/cell names may contain non-ASCII chars (e.g. '®' in Cadence
-    # titles). On hosts whose locale is GBK / cp1252 / etc., printing them
-    # raises UnicodeEncodeError. Switch to errors='replace' so CLI output
-    # never aborts on a stray byte.
+    # titles). On hosts whose locale is GBK / cp1252 / etc., the default
+    # stdout encoding cannot represent them and print() raises
+    # UnicodeEncodeError. Force UTF-8 (every modern terminal renders it
+    # regardless of LANG) and keep errors='replace' as a last-resort
+    # safety net.
     import sys
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
         if reconfigure is not None:
             try:
-                reconfigure(errors="replace")
+                reconfigure(encoding="utf-8", errors="replace")
             except Exception:
                 pass
 
