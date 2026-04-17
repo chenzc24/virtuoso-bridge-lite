@@ -29,12 +29,16 @@ def get_grandparent_pid():
 
 virtuoso_pid = get_grandparent_pid()
 
-# Set stdin to non-blocking, keep stdout blocking
-stdin_fd = sys.stdin.buffer.raw.fileno()
+# Set stdin to non-blocking, keep stdout blocking.
+# Under `python -u` (unbuffered), sys.stdin.buffer / sys.stdout.buffer is a raw
+# FileIO directly and has no `.raw` attribute, so fall back to the buffer itself.
+_stdin_buf = sys.stdin.buffer
+stdin_fd = (_stdin_buf.raw if hasattr(_stdin_buf, 'raw') else _stdin_buf).fileno()
 stdin_fl = fcntl.fcntl(stdin_fd, fcntl.F_GETFL)
 fcntl.fcntl(stdin_fd, fcntl.F_SETFL, stdin_fl | os.O_NONBLOCK)
 
-stdout_fd = sys.stdout.buffer.raw.fileno()
+_stdout_buf = sys.stdout.buffer
+stdout_fd = (_stdout_buf.raw if hasattr(_stdout_buf, 'raw') else _stdout_buf).fileno()
 stdout_fl = fcntl.fcntl(stdout_fd, fcntl.F_GETFL)
 fcntl.fcntl(stdout_fd, fcntl.F_SETFL, stdout_fl & ~os.O_NONBLOCK)
 
