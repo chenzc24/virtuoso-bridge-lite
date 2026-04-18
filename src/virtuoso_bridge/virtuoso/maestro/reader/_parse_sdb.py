@@ -100,49 +100,117 @@ def parse_parameters_from_sdb_xml(xml_text: str) -> list[dict]:
     return result
 
 
-def parse_variables_from_sdb_xml(xml_text: str) -> dict[str, str]:
-    """Extract variables from a ``maestro.sdb`` XML payload.
+# Cadence sweep encoding.  A plain scalar is just the literal; a sweep
+# shows up as one of:
+#   "start:step:stop"        -> range sweep
+#   "(v1 v2 v3 ...)"         -> enumerated list
+_RANGE_SWEEP_RE = re.compile(
+    r"^\s*(-?[0-9.eE+]+)\s*:\s*(-?[0-9.eE+]+)\s*:\s*(-?[0-9.eE+]+)\s*$"
+)
+_LIST_SWEEP_RE = re.compile(r"^\s*\((.+)\)\s*$")
 
-    Returns a flat ``name -> value`` dict.  Merges:
 
-      - ``<active><vars>`` (global, typical for ADE Assembler)
-      - ``<active><tests><test><tooloptions><vars>`` (per-test, typical
-        for ADE Explorer which has exactly one test per cellview)
+def _classify_var_value(text: str, enabled: bool) -> dict:
+    """Tag a raw ``<value>`` string as scalar / range-sweep / list-sweep.
 
-    Globals take precedence on name collisions.  This mirrors the flat
-    view the user sees in the Variables panel.
+    Keeps the original text verbatim under ``"raw"`` and records the
+    ``enabled`` flag from the ``<var enabled="...">`` attribute (defaults
+    to True when the attr is absent — that's Maestro's behavior).
+    Returns::
 
-    Pure function — does no I/O.  Returns ``{}`` on parse error.
+        {"raw": "<original>",
+         "enabled": True|False,
+         "kind": "scalar" | "range_sweep" | "list_sweep",
+         # range_sweep only: start / step / stop / points_count
+         # list_sweep  only: values
+        }
     """
+    raw = (text or "").strip()
+    out: dict = {"raw": raw, "enabled": enabled, "kind": "scalar"}
+    if not raw:
+        return out
+    m = _RANGE_SWEEP_RE.match(raw)
+    if m:
+        try:
+            start, step, stop = float(m.group(1)), float(m.group(2)), float(m.group(3))
+        except ValueError:
+            return out
+        if step <= 0:
+            return out
+        count = int(round((stop - start) / step)) + 1 if stop >= start else 0
+        out.update(kind="range_sweep", start=m.group(1), step=m.group(2),
+                   stop=m.group(3), points_count=count)
+        return out
+    m = _LIST_SWEEP_RE.match(raw)
+    if m:
+        parts = [p for p in re.split(r"[\s,]+", m.group(1).strip()) if p]
+        if parts:
+            out.update(kind="list_sweep", values=parts)
+            return out
+    return out
+
+
+def _var_enabled(v) -> bool:
+    """Read the ``enabled`` attribute — defaults to True when absent."""
+    attr = v.get("enabled")
+    if attr is None:
+        return True
+    return attr != "0"
+
+
+def parse_variables_from_sdb_xml(xml_text: str) -> dict:
+    """Extract variables from a ``maestro.sdb`` XML payload, keeping the
+    per-test vs. global scope separation the Maestro GUI exposes.
+
+    Returns::
+
+        {"globals":  {var_name: value_info, ...},
+         "per_test": {test_name: {var_name: value_info, ...}, ...}}
+
+    Each ``value_info`` is the dict produced by :func:`_classify_var_value`
+    — always carries the original ``raw`` text plus a ``kind`` tag
+    (``scalar`` / ``range_sweep`` / ``list_sweep``) and, for sweeps, the
+    parsed fields.
+
+    Pure function — does no I/O.  Returns ``{"globals": {}, "per_test":
+    {}}`` on parse error.
+    """
+    empty: dict = {"globals": {}, "per_test": {}}
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError:
-        return {}
+        return empty
 
-    result: dict[str, str] = {}
+    globals_out: dict[str, dict] = {}
+    per_test_out: dict[str, dict[str, dict]] = {}
+
     for active in root.findall("active"):
-        # Per-test vars first; globals overwrite below.
-        # <vars> is a direct child of <test> (sibling of <tooloptions>).
+        # Per-test vars — <vars> is a direct child of <test> (sibling of
+        # <tooloptions>).  Typical for ADE Explorer (one test per cellview).
         tests_elem = active.find("tests")
         if tests_elem is not None:
             for test in tests_elem.findall("test"):
+                test_name = (test.text or "").strip()
                 vars_e = test.find("vars")
-                if vars_e is None:
+                if vars_e is None or not test_name:
                     continue
+                scope = per_test_out.setdefault(test_name, {})
                 for v in vars_e.findall("var"):
                     name = (v.text or "").strip()
-                    if name and name not in result:
-                        result[name] = v.findtext("value", "").strip()
+                    if name:
+                        scope[name] = _classify_var_value(
+                            v.findtext("value", ""), _var_enabled(v))
 
-        # Global vars under <active> directly
+        # Global vars — <vars> directly under <active>.  Typical for ADE Assembler.
         vars_elem = active.find("vars")
         if vars_elem is not None:
             for v in vars_elem.findall("var"):
                 name = (v.text or "").strip()
                 if name:
-                    result[name] = v.findtext("value", "").strip()
+                    globals_out[name] = _classify_var_value(
+                        v.findtext("value", ""), _var_enabled(v))
 
-    return result
+    return {"globals": globals_out, "per_test": per_test_out}
 
 
 def parse_tests_from_sdb_xml(xml_text: str) -> set[str]:

@@ -161,29 +161,49 @@ def read_env(client: VirtuosoClient, session: str) -> dict:
 def read_variables(client: VirtuosoClient, session: str, *,
                    sdb_path: str | None = None,
                    local_sdb_path: str | None = None,
-                   reuse_local: bool = False) -> dict[str, str]:
-    """Read design variables with values.
+                   reuse_local: bool = False) -> dict:
+    """Read design variables with values, split by scope.
 
-    Prefers parsing ``maestro.sdb`` XML (works for both ADE Assembler and
+    Returns::
+
+        {"globals":  {var_name: value_info, ...},
+         "per_test": {test_name: {var_name: value_info, ...}, ...}}
+
+    Each ``value_info`` is a dict carrying the raw ``<value>`` text plus a
+    ``kind`` tag (``scalar`` / ``range_sweep`` / ``list_sweep``) and — for
+    sweeps — the parsed ``start``/``step``/``stop``/``points_count`` or
+    ``values`` fields.
+
+    Prefers parsing ``maestro.sdb`` XML (works for ADE Assembler and
     Explorer, no dependence on ``asiGetCurrentSession``'s shifting state).
-    Falls back to ``asiGetDesignVarList`` only if the sdb path is unknown.
+    Falls back to ``asiGetDesignVarList`` only when ``sdb_path`` is
+    unknown; that fallback yields ``globals`` only (the per-test split is
+    not reachable from SKILL).
     """
+    empty: dict = {"globals": {}, "per_test": {}}
     if sdb_path:
-        vars_ = parse_variables_from_sdb_xml(
+        parsed = parse_variables_from_sdb_xml(
             _read_sdb_xml(client, sdb_path,
                           local_path=local_sdb_path, reuse=reuse_local))
-        if vars_:
-            return vars_
+        if parsed.get("globals") or parsed.get("per_test"):
+            return parsed
 
     # Fallback: ask asi* (may return wrong session's vars when the ADE
     # current session differs from the maestro session we want).
     r = client.execute_skill('asiGetDesignVarList(asiGetCurrentSession())')
     pairs = _parse_pair_alist(r.output or "")
     if pairs:
-        return dict(pairs)
+        return {"globals": {k: {"raw": v, "enabled": True, "kind": "scalar"}
+                            for k, v in pairs},
+                "per_test": {}}
     r = client.execute_skill(
         f'maeGetSetup(?session "{session}" ?typeName "variables")')
-    return dict(_parse_pair_alist(r.output or ""))
+    pairs = _parse_pair_alist(r.output or "")
+    if not pairs:
+        return empty
+    return {"globals": {k: {"raw": v, "enabled": True, "kind": "scalar"}
+                        for k, v in pairs},
+            "per_test": {}}
 
 
 # ---------------------------------------------------------------------------
