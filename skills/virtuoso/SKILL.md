@@ -155,6 +155,7 @@ Load on demand — each contains detailed API docs and edge-case guidance:
 | `references/netlist.md` | CDL/Spectre netlist formats, spiceIn import |
 | `references/troubleshooting.md` | Known gotchas, GUI blocking, CDF quirks, connection issues |
 | `references/testbench-migration.md` | Migrate testbench + Maestro to another library (pitfalls, CDF param names) |
+| `references/testbench-duplication.md` | Clone testbench cell (schematic+config+maestro) to a new name in the same library |
 | `references/schematic-recreation.md` | Recreate schematic from existing design (grid layout, diff pair conventions) |
 | `references/batch-netlist-si.md` | Generate netlists without Maestro using si batch translator |
 
