@@ -422,6 +422,10 @@ class VirtuosoClient(VirtuosoInterface):
         """
         effective_timeout = timeout if timeout is not None else self._timeout
         # Use "|" as delimiter — tab/newline get escaped in the SKILL→Python path.
+        # Guard against windows whose hiGetWindowName returns nil (e.g. some
+        # transient sub-forms).  Previously we wrapped with errset() but that
+        # only catches actual errors, not a nil-valued success — sprintf %s
+        # on nil then raised and blew away the entire accumulated result.
         skill = r'''
 let((result winName ciwNum)
   result = ""
@@ -431,14 +435,13 @@ let((result winName ciwNum)
     when(ciw
       ciwNum = ciw~>windowNum
       winName = hiGetWindowName(ciw)
-      result = strcat(result sprintf(nil "%d|%s;" ciwNum winName))))
+      when(stringp(winName)
+        result = strcat(result sprintf(nil "%d|%s;" ciwNum winName)))))
   foreach(w hiGetWindowList()
     when(w~>windowNum != ciwNum
-      let((nameResult)
-        nameResult = errset(hiGetWindowName(w))
-        when(nameResult
-          winName = car(nameResult)
-          result = strcat(result sprintf(nil "%d|%s;" w~>windowNum winName))))))
+      let((nm) nm = hiGetWindowName(w)
+        when(stringp(nm)
+          result = strcat(result sprintf(nil "%d|%s;" w~>windowNum nm))))))
   result)
 '''
         r = self.execute_skill(skill, timeout=effective_timeout)
