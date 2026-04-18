@@ -537,7 +537,8 @@ def read_outputs(client: VirtuosoClient, session: str,
 
 
 _MAE_TITLE_RE = re.compile(
-    r"Assembler\s+(Editing|Reading):\s+(\S+)\s+(\S+)\s+([^\s*]+)(\*?)\s*$"
+    r"ADE\s+(Assembler|Explorer)\s+(Editing|Reading):\s+"
+    r"(\S+)\s+(\S+)\s+([^\s*]+)(\*?)\s*$"
 )
 # A history is anchored by its .rdb metadata file (any user-given name, any
 # suffix like Interactive.0.RO, closeloop_PVT_postsim, etc.).  We also accept
@@ -553,20 +554,22 @@ def _match_mae_title(titles) -> dict:
 
     Title format::
 
-        Virtuoso® ADE Assembler {Editing|Reading}: LIB CELL VIEW[*]
+        Virtuoso® ADE {Assembler|Explorer} {Editing|Reading}: LIB CELL VIEW[*]
 
     ``*`` at the end is Virtuoso's "unsaved changes" indicator.
 
-    Returns a dict with keys lib, cell, view, editable, unsaved_changes —
-    empty dict if no title matches.
+    Returns a dict with keys application, lib, cell, view, editable,
+    unsaved_changes — empty dict if no title matches.  ``application``
+    is ``"assembler"`` or ``"explorer"`` (lower-case).
     """
     for n in titles or ():
         if not n:
             continue
         m = _MAE_TITLE_RE.search(n)
         if m:
-            mode, lib, cell, view, star = m.groups()
+            app, mode, lib, cell, view, star = m.groups()
             return {
+                "application": app.lower(),            # "assembler" or "explorer"
                 "lib": lib,
                 "cell": cell,
                 "view": view,
@@ -688,6 +691,7 @@ def read_session_info(client: VirtuosoClient, *,
     lib = match.get("lib", "")
     cell = match.get("cell", "")
     view = match.get("view", "")
+    application = match.get("application")     # "assembler" / "explorer" / None
     editable = match.get("editable")           # None if no match
     unsaved_changes = match.get("unsaved_changes")
 
@@ -793,6 +797,7 @@ def read_session_info(client: VirtuosoClient, *,
 
     return {
         "session": session,
+        "application": application,          # "assembler" / "explorer" / None
         "lib": lib,
         "cell": cell,
         "view": view,
