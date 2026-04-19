@@ -205,10 +205,8 @@ def snapshot_to_dir(client: VirtuosoClient, *,
         snap_dir.mkdir(parents=True, exist_ok=True)
         local_sdb = snap_dir / "maestro.sdb"
 
-        # Auto-detect scratch_root: SKILL first, sdb-regex fallback.
-        if scratch_root is None:
-            scratch_root = _detect_scratch_root(client, info, str(local_sdb))
-
+        # snapshot() now handles scratch_root auto-detection itself; just
+        # pass the caller's value through (None = detect, "" = skip).
         snap = snapshot(
             client,
             include_output_values=include_output_values,
@@ -216,7 +214,8 @@ def snapshot_to_dir(client: VirtuosoClient, *,
             sdb_cache_path=str(local_sdb),
             scratch_root=scratch_root,
         )
-        snap["scratch_root_detected"] = scratch_root
+        # Back-compat alias: old field name from when detection lived here.
+        snap["scratch_root_detected"] = snap.get("scratch_root")
 
         # Split the bulky / auxiliary sections into sibling files.
         histories = snap.pop("histories", None)
@@ -327,9 +326,12 @@ def snapshot(client: VirtuosoClient, *,
     - ``include_latest_history=True`` (default) — the newest run's
       ``.log`` content + ``spectre.out`` tail.  Pure file-system / scp,
       no SKILL.  Cheap and stable.
-    - ``scratch_root="..."`` — when provided, also emit a ``histories``
-      field with full per-run file paths (netlist/psf/markers) for every
-      Interactive.N.  Pure scp.
+    - ``scratch_root`` — install-specific sim scratch prefix.  Defaults
+      to ``None`` (auto-detect via ``asiGetAnalogRunDir`` SKILL, sdb-regex
+      fallback).  Pass an explicit path to override, or ``""`` to skip
+      detection entirely.  Whatever is finally used (or ``None``) shows up
+      in the output as ``"scratch_root"``.  When non-empty, also emits a
+      ``"histories"`` field with full per-run file paths.
 
     Other flags:
 
@@ -344,6 +346,13 @@ def snapshot(client: VirtuosoClient, *,
     with _sdb_cache(sdb_cache_path) as cache_path:
         info = read_session_info(client, sdb_cache_path=cache_path)
         sess = info.get("session") or ""
+
+        # Auto-detect scratch_root (SKILL → sdb-regex fallback) when the
+        # caller didn't pin it.  ``""`` is a "skip detection" signal so a
+        # caller can deliberately omit histories enrichment.  The sdb is
+        # already on disk from read_session_info, so detection is cheap.
+        if scratch_root is None:
+            scratch_root = _detect_scratch_root(client, info, cache_path)
 
         cfg_raw = read_config_raw(client, sess) if sess else {}
         env_raw = read_env_raw(client, sess) if sess else {}
@@ -410,6 +419,10 @@ def snapshot(client: VirtuosoClient, *,
                 "sdb":          sdb,
                 "results_base": info.get("results_base") or "",
             },
+
+            # --- Scratch (auto-detected unless caller pinned) ----------
+            # None = detection failed / no scratch ever recorded.
+            "scratch_root": scratch_root or None,
         }
 
         if include_raw:
