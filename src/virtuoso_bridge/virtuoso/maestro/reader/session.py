@@ -1,22 +1,37 @@
 """Locate and describe the focused maestro session.
 
-Three entry points:
+Live entry points (need a client):
 
 - ``read_session_info`` — full info dict for the currently focused window.
 - ``detect_session_for_focus`` — map focused cellview to one of several
   open maestro sessions by matching test-name sets.
 - ``detect_scratch_root_via_skill`` — ask Cadence directly for the
   simulation scratch prefix (``asiGetAnalogRunDir``), no sdb heuristic.
+
+Local entry points (no client, just a path):
+
+- ``parse_local_maestro_sdb`` — pure-local counterpart of
+  ``read_session_info``.  Reads a local ``maestro.sdb`` (already pulled
+  back via scp) plus its adjacent ``results/maestro/`` directory.
+- ``natural_sort_histories`` — sort a directory listing into a history-name
+  list (Interactive.N / sweep_set.N / closeloop_PVT_postsim / ...).
 """
 
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from virtuoso_bridge import VirtuosoClient
 
 from ._parse_skill import _parse_skill_str_list, _tokenize_top_level
-from ._parse_sdb import parse_tests_from_sdb_xml
+from ._parse_sdb import (
+    detect_scratch_root_from_sdb,
+    parse_corners_xml,
+    parse_parameters_from_sdb_xml,
+    parse_tests_from_sdb_xml,
+    parse_variables_from_sdb_xml,
+)
 from .remote_io import read_remote_file
 
 
@@ -221,14 +236,19 @@ def _pick_sdb_file(view_files: list[str], view: str) -> str:
     return preferred if preferred in sdb_files else sdb_files[0]
 
 
-def _natural_sort_histories(hist_files: list[str]) -> list[str]:
+def natural_sort_histories(hist_files: list[str]) -> list[str]:
     """Extract history names from a ``results/maestro`` dir listing.
 
     Histories anchor on ``<name>.rdb`` metadata files; bare directories
-    matching Cadence's Interactive.N / MonteCarlo.N shape are also accepted
-    (some setups store both, some only the dir).  Sorts naturally so
-    ``Interactive.2`` < ``Interactive.10``; named histories
-    (``closeloop_PVT_postsim``) sort alphabetically among peers.
+    matching Cadence's ``Interactive.N`` / ``MonteCarlo.N`` shape are also
+    accepted (some setups store both, some only the dir).  Sorts naturally
+    so ``Interactive.2`` < ``Interactive.10``; named histories
+    (``closeloop_PVT_postsim``, ``sweep_set.3``, ``cap_array.8``) sort
+    alphabetically among peers.
+
+    Pure function — pass any iterable of basenames (e.g. from
+    :func:`os.listdir` on a local cell's ``maestro/results/maestro/``
+    directory, or from a remote ``getDirFiles`` SKILL call).
     """
     seen: set[str] = set()
     for h in hist_files:
@@ -281,7 +301,7 @@ def read_session_info(client: VirtuosoClient, *,
          to scanning all titles) → lib / cell / view / mode / unsaved.
       3. :func:`_fetch_viewdir_listing` — 1 SKILL call → lib_path, view
          directory files, history directory files.
-      4. :func:`_pick_sdb_file` + :func:`_natural_sort_histories` —
+      4. :func:`_pick_sdb_file` + :func:`natural_sort_histories` —
          filter + sort the listings.
       5. :func:`_resolve_session` — if multiple sessions are open, match
          the focused sdb's tests against each session.
@@ -298,7 +318,7 @@ def read_session_info(client: VirtuosoClient, *,
 
     lib_path, view_files, hist_files = _fetch_viewdir_listing(client, lib, cell, view)
     sdb_name = _pick_sdb_file(view_files, view)
-    history_list = _natural_sort_histories(hist_files)
+    history_list = natural_sort_histories(hist_files)
 
     sdb_path = (f"{lib_path}/{cell}/{view}/{sdb_name}"
                 if lib_path and cell and view and sdb_name else "")
@@ -324,3 +344,106 @@ def read_session_info(client: VirtuosoClient, *,
         "focused_window_title": cur_name or "",
         "all_window_titles": all_names,
     }
+
+
+def parse_local_maestro_sdb(path: str | Path, *,
+                             lib_name: str | None = None,
+                             view: str = "maestro") -> dict:
+    """Parse a local maestro.sdb + adjacent ``results/maestro/`` listing.
+
+    Pure-local counterpart to :func:`read_session_info` — no client, no
+    SKILL, no scp.  Use after pulling a cell directory tree to disk
+    (e.g. via ``scp`` / ``tar``) when you want to inspect setup, vars,
+    corners, parameters, and the history catalogue offline.
+
+    Args:
+      path: any of these is accepted —
+        - the ``maestro.sdb`` file itself, or
+        - the ``maestro/`` directory containing it (with ``maestro.sdb``
+          and ``results/maestro/`` inside), or
+        - the cell directory containing ``maestro/maestro.sdb``.
+      lib_name: original library name; only ``detect_scratch_root_from_sdb``
+        consumes it (it filters the path-prefix regex by ``lib/cell/view``).
+        Pass it for usable ``scratch_root_sdb``; otherwise that field is None.
+      view: maestro view name, defaults to ``"maestro"``.  Override for
+        ``maestro_MC`` / ``maestro_2`` / etc.
+
+    Returns: a dict with the on-disk-derivable subset of
+    :func:`read_session_info`'s fields, plus the parsed sdb sections::
+
+        {
+          "cell":            str,                 # from path
+          "view":            str,                 # echoed from arg
+          "lib_name":        str | None,          # echoed from arg
+          "sdb_path":        str,                 # absolute or relative
+          "results_base":    str,                 # may be "" if dir absent
+          "history_list":    list[str],
+          "tests":           list[str],
+          "variables":       {"globals": {...}, "per_test": {...}},
+          "corners":         {name: {...}},
+          "parameters":      [{...}, ...],
+          "scratch_root_sdb": str | None,
+        }
+
+    Live-only fields (``session``, ``application``, ``editable``,
+    ``unsaved_changes``, ``focused_window_title``, ``all_window_titles``)
+    are NOT included — they require a live SKILL channel.
+    """
+    p = Path(path)
+
+    # Resolve to (cell_dir, sdb_path, hist_dir) regardless of which level
+    # the caller pointed us at.
+    if p.is_file():
+        sdb_path = p
+        view_dir = p.parent
+        cell_dir = view_dir.parent
+    elif (p / "maestro.sdb").is_file():
+        sdb_path = p / "maestro.sdb"
+        view_dir = p
+        cell_dir = p.parent
+    elif (p / view / "maestro.sdb").is_file():
+        sdb_path = p / view / "maestro.sdb"
+        view_dir = p / view
+        cell_dir = p
+    else:
+        # Best-effort: assume cell dir even if no sdb yet (still parsable
+        # for history listing).
+        cell_dir = p
+        view_dir = p / view
+        sdb_path = view_dir / "maestro.sdb"
+
+    cell = cell_dir.name
+    hist_dir = view_dir / "results" / "maestro"
+    history_list = (
+        natural_sort_histories([f.name for f in hist_dir.iterdir()])
+        if hist_dir.is_dir() else []
+    )
+
+    out: dict = {
+        "cell":         cell,
+        "view":         view,
+        "lib_name":     lib_name,
+        "sdb_path":     str(sdb_path) if sdb_path.exists() else "",
+        "results_base": str(hist_dir) if hist_dir.is_dir() else "",
+        "history_list": history_list,
+        # Filled in below if sdb is present.
+        "tests":             [],
+        "variables":         {"globals": {}, "per_test": {}},
+        "corners":           {},
+        "parameters":        [],
+        "scratch_root_sdb":  None,
+    }
+
+    if not sdb_path.exists():
+        return out
+
+    xml = sdb_path.read_text(encoding="utf-8", errors="replace")
+    out["tests"]       = sorted(parse_tests_from_sdb_xml(xml))
+    out["variables"]   = parse_variables_from_sdb_xml(xml)
+    out["corners"]     = parse_corners_xml(xml)
+    out["parameters"]  = parse_parameters_from_sdb_xml(xml)
+    if lib_name:
+        out["scratch_root_sdb"] = detect_scratch_root_from_sdb(
+            xml, lib_name, cell, view,
+        )
+    return out

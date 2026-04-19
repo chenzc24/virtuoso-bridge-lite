@@ -47,6 +47,8 @@ from .runs import (
 from .session import (
     detect_scratch_root_via_skill,
     detect_session_for_focus,
+    natural_sort_histories,
+    parse_local_maestro_sdb,
     read_session_info,
 )
 from .snapshot import snapshot, snapshot_to_dir
@@ -61,10 +63,13 @@ __all__ = [
     "parse_variables_from_sdb_xml",
     "parse_history_log",
     "detect_scratch_root_from_sdb",
-    # session
+    # session (live, needs client)
     "read_session_info",
     "detect_session_for_focus",
     "detect_scratch_root_via_skill",
+    # session (local, file-system only)
+    "parse_local_maestro_sdb",
+    "natural_sort_histories",
     # probes
     "read_config",
     "read_config_raw",

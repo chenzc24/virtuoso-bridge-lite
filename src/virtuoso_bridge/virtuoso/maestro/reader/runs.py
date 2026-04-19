@@ -16,7 +16,7 @@ from virtuoso_bridge import VirtuosoClient
 from ._parse_skill import _parse_sexpr, _parse_skill_str_list
 from ._skill import _q, _get_test, _unique_remote_wave_path
 from .remote_io import read_remote_file
-from .session import _natural_sort_histories
+from .session import natural_sort_histories
 
 
 # PSF filename → short analysis name.  Rules are matched in order; the
@@ -243,7 +243,7 @@ def read_results(client: VirtuosoClient, session: str,
             f'if(isDir(d) getDirFiles(d) nil))'
         )
         files = _parse_skill_str_list(r.output or "")
-        hist_list = _natural_sort_histories(files)
+        hist_list = natural_sort_histories(files)
         latest_history = ""
         # Natural-sort puts oldest-first; walk newest-first.
         for h in reversed(hist_list):
