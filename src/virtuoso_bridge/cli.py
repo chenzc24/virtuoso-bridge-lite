@@ -574,11 +574,8 @@ _SCREENSHOT_TARGET: list[str] = ["ciw"]
 # `output_root=None` is a sentinel for "user didn't pass -o" — that's what
 # selects brief stdout mode.
 _SNAPSHOT_OPTS: dict = {
-    "output_root":            None,
-    "json":                   False,
-    "include_output_values":  False,
-    "include_latest_history": True,    # default ON; --no-include-latest-history turns off
-    "debug":                  False,   # turn on raw_skill.json + probe_log.json
+    "output_root": None,
+    "json":        False,
 }
 
 
@@ -655,15 +652,13 @@ def cli_snapshot() -> int:
     """Snapshot the currently-focused Virtuoso window.
 
     Three modes:
-      default     : brief one-screen summary to stdout (fast — skips
-                     latest-history scp, no disk writes).
-      ``-o ROOT`` : full snapshot_to_dir under ROOT (slow but complete:
-                     maestro.sdb + active.state (raw) +
+      default     : brief one-screen summary to stdout (fast —
+                     brief_bundle only, ~150ms).
+      ``-o ROOT`` : full ``snapshot(output_root=ROOT)`` — pure SKILL +
+                     5 scp's; writes maestro.sdb + active.state (raw) +
                      state_from_sdb.xml + state_from_active_state.xml
-                     (filtered) + state_from_skill.json (SKILL track) +
-                     histories.json + latest_history.json + <history>/
-                     run artifacts; with ``--debug`` also raw_skill.json
-                     + probe_log.json).
+                     (filtered) + state_from_skill.json + histories.json
+                     + latest_history.json + <history>/ run artifacts.
       ``--json``  : full in-memory snapshot dict as JSON to stdout.
     """
     _load_cli_env()
@@ -673,7 +668,7 @@ def cli_snapshot() -> int:
     from virtuoso_bridge import VirtuosoClient
     from virtuoso_bridge.virtuoso import snapshot as poly_snapshot
     from virtuoso_bridge.virtuoso.snapshot import classify_window
-    from virtuoso_bridge.virtuoso.maestro import snapshot_to_dir as _maestro_to_dir
+    from virtuoso_bridge.virtuoso.maestro import snapshot as _maestro_snapshot
 
     client = VirtuosoClient.from_env()
     opts = _SNAPSHOT_OPTS
@@ -691,23 +686,13 @@ def cli_snapshot() -> int:
             print(f"[{kind}] {title}", file=sys.stderr)
             print(f"-o ROOT only supports maestro for now.", file=sys.stderr)
             return 1
-        snap_dir = _maestro_to_dir(
-            client, output_root=opts["output_root"],
-            include_output_values=opts["include_output_values"],
-            include_latest_history=opts["include_latest_history"],
-            include_raw_skill=opts["debug"],   # dev-only by default
-            include_metrics=opts["debug"],     # dev-only by default
-        )
-        print(snap_dir)
+        result = _maestro_snapshot(client, output_root=opts["output_root"])
+        print(result.get("output_dir", ""))
         return 0
 
     # Mode 2: --json — full in-memory dict to stdout.
     if opts["json"]:
-        result = poly_snapshot(client) if kind != "maestro" else poly_snapshot(
-            client,
-            include_output_values=opts["include_output_values"],
-            include_latest_history=opts["include_latest_history"],
-        )
+        result = poly_snapshot(client) if kind != "maestro" else poly_snapshot(client)
         json.dump(result, sys.stdout, indent=2, ensure_ascii=False, default=str)
         sys.stdout.write("\n")
         return 0
@@ -721,77 +706,55 @@ def cli_snapshot() -> int:
         print(f"[{kind}] {title}")
         return 0
 
-    # Maestro brief: 2 SKILL round-trips total — _fetch_window_state
-    # for focused title/davSession, then brief_bundle for everything
-    # else.  No scp.  ~150ms wall.
-    from virtuoso_bridge.virtuoso.maestro.reader.session import (
-        _fetch_window_state, _match_mae_title,
-    )
-    from virtuoso_bridge.virtuoso.maestro.reader.bundle import brief_bundle
-
-    cur_name, cur_sess, all_names, _sessions = _fetch_window_state(client)
-    title_match = _match_mae_title([cur_name]) or _match_mae_title(all_names)
-    lib  = title_match.get("lib", "")
-    cell = title_match.get("cell", "")
-    view = title_match.get("view", "") or "maestro"
-
-    bundle = brief_bundle(client, sess=cur_sess, lib=lib, cell=cell, view=view)
-    _print_maestro_brief(
-        title_match=title_match, sess=cur_sess, bundle=bundle,
-        lib=lib, cell=cell, view=view,
-    )
+    # Maestro brief: just call snapshot() (no output_root) and render
+    # its sparse dict.  2 SKILL round-trips total, no scp.  ~150ms.
+    snap = _maestro_snapshot(client)
+    _print_maestro_brief(snap)
     return 0
 
 
-def _print_maestro_brief(*, title_match: dict, sess: str, bundle: dict,
-                         lib: str, cell: str, view: str) -> None:
-    """One-screen summary of a focused maestro session — pure SKILL.
+def _print_maestro_brief(d: dict) -> None:
+    """One-screen summary from a SKILL-only snapshot dict.
 
-    Variables, corners, parameters and per-test setup live in
-    ``maestro.sdb`` / ``active.state``; for those, run
-    ``virtuoso-bridge snapshot -o ROOT`` and inspect the filtered XML
-    files (``state_from_sdb.xml`` / ``state_from_active_state.xml``).
+    Setup details (variables / corners / parameters / per-analysis
+    settings / env options) are not in the dict by design; for those
+    run ``virtuoso-bridge snapshot -o ROOT`` and inspect the XML /
+    .txt files in the resulting directory.
     """
-    from virtuoso_bridge.virtuoso.maestro.reader.session import natural_sort_histories
-
-    app   = title_match.get("application") or "?"
-    mode  = "Editing" if title_match.get("editable") else (
-            "Reading" if title_match.get("editable") is False else "")
-    unsaved = title_match.get("unsaved_changes")
+    app  = d.get("app") or "?"
+    mode = d.get("mode")
+    unsaved = d.get("unsaved")
     mode_suffix = f" ({mode}" + (", unsaved)" if unsaved else ")") if mode else ""
-    location = "/".join(p for p in (lib, cell, view) if p)
 
-    print(f"[{app}] {location}{mode_suffix}")
-    print(f"[session] {sess}  test={bundle.get('test','')}")
+    print(f"[{app}] {d.get('location','')}{mode_suffix}")
+    print(f"[session] {d.get('session','')}  test={d.get('test','')}")
 
-    design = bundle.get("design") or {}
-    if design.get("lib"):
-        print(f"[design] {design['lib']}/{design['cell']}/{design['view']}")
+    if d.get("run_mode"):
+        print(f"[run mode] {d['run_mode']}")
 
-    if bundle.get("run_mode"):
-        print(f"[run mode] {bundle['run_mode']}")
-
-    analyses = bundle.get("analyses") or []
+    analyses = d.get("enabled_analyses") or []
     if analyses:
         print(f"[analyses] {', '.join(analyses)}")
 
-    n_outputs = bundle.get("outputs_count") or 0
-    if n_outputs:
-        print(f"[outputs] {n_outputs}")
+    if d.get("outputs_count"):
+        print(f"[outputs] {d['outputs_count']}")
+
+    if d.get("errors_count"):
+        print(f"[errors] {d['errors_count']}")
 
     # --- Latest run paths (deterministic — derived from lib_path /
     # scratch_root / latest history name).  No extra SKILL needed.
-    lib_path = bundle.get("lib_path") or ""
-    scratch  = bundle.get("scratch_root") or ""
-    test     = bundle.get("test") or ""
-    histories = natural_sort_histories(bundle.get("hist_files") or [])
-    latest = histories[-1] if histories else ""
+    lib_path     = d.get("lib_path") or ""
+    scratch      = d.get("scratch_root") or ""
+    test         = d.get("test") or ""
+    latest       = d.get("latest_history") or ""
+    results_base = d.get("results_base") or ""
+    location     = d.get("location") or ""
 
-    results_base = f"{lib_path}/{cell}/{view}/results/maestro" if lib_path else ""
     if latest and results_base:
         print(f"[.log] {results_base}/{latest}.log")
-    if latest and scratch and test:
-        scr = f"{scratch}/{lib}/{cell}/{view}/results/maestro/{latest}/1/{test}"
+    if latest and scratch and test and location:
+        scr = f"{scratch}/{location}/results/maestro/{latest}/1/{test}"
         print(f"[.scs] {scr}/netlist/input.scs")
         print(f"[.out] {scr}/psf/spectre.out")
 
@@ -873,21 +836,6 @@ def build_parser() -> argparse.ArgumentParser:
                               "Without -o, prints a brief summary to stdout.")
     sp_snap.add_argument("--json", action="store_true",
                          help="Print full snapshot dict as JSON to stdout (overrides default brief)")
-    import argparse as _ap
-    sp_snap.add_argument("--include-output-values",
-                         dest="include_output_values",
-                         action=_ap.BooleanOptionalAction, default=False,
-                         help="(maestro) Pull simulation output scalars "
-                              "(default off; GUI mode required)")
-    sp_snap.add_argument("--include-latest-history",
-                         dest="include_latest_history",
-                         action=_ap.BooleanOptionalAction, default=True,
-                         help="(maestro -o ROOT) Persist newest-history .log + "
-                              "spectre.out (default on)")
-    sp_snap.add_argument("--debug", action="store_true",
-                         help="(maestro -o ROOT) Also write raw_skill.json (every "
-                              "execute_skill input/output) and probe_log.json "
-                              "(per-call timing).")
     sp_snap.add_argument("-p", "--profile", default=None,
                          help="Connection profile")
     sp_snap.add_argument("--env", default=None,

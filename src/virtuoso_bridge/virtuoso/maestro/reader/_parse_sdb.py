@@ -58,7 +58,9 @@ _DEFAULT_SDB_ACTIVE_KEEP = (
 )
 _DEFAULT_STATE_COMPONENT_KEEP = (
     "adeInfo", "analyses", "variables", "outputs",
-    "modelSetup", "simulatorOptions", "environmentOptions", "rfstim",
+    "modelSetup", "environmentOptions", "rfstim",
+    "turboOptions",                              # Spectre X / APS / AX / CX
+    "mdlOptions", "mtsSetup", "graphicalStimuli", # populated only when used
 )
 
 

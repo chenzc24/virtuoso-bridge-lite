@@ -1,6 +1,11 @@
-"""Parsers for SKILL-side output strings (s-expressions, alists, sev outputs).
+"""Light SKILL output tokenizer used by ``bundle.py`` to slot the
+single big SKILL response into per-call segments, plus a small
+s-expression decoder for ``read_results`` (which returns numeric
+post-simulation values that callers actively compute on).
 
-Pure functions — no I/O, no dependency on a live VirtuosoClient.
+Pure functions — no I/O.  Deliberately *not* a full SKILL alist→dict
+parser for setup data: snapshot output keeps SKILL setup as raw text
+in ``state_from_skill.txt``; consumers read it directly.
 """
 
 from __future__ import annotations
@@ -8,28 +13,15 @@ from __future__ import annotations
 import re
 
 
-_OUTPUT_FIELDS = ("name", "type", "signal", "expr",
-                  "plot", "save", "eval_type", "unit", "spec")
-
-
 def _parse_skill_str_list(raw: str) -> list[str]:
-    """Parse a flat SKILL list of strings like ("a" "b" "c") -> ['a','b','c']."""
+    """Parse a flat SKILL list of strings like ``("a" "b" "c")`` →
+    ``['a', 'b', 'c']``.  Returns ``[]`` on empty / ``nil`` / no quotes."""
     if not raw:
         return []
     s = raw.strip()
     if s in ("", "nil"):
         return []
     return re.findall(r'"([^"]*)"', s)
-
-
-def _parse_pair_alist(raw: str) -> list[tuple[str, str]]:
-    """Parse a SKILL alist like (("k" "v") ...) into list of (k,v) tuples.
-
-    Only extracts pairs whose both elements are simple double-quoted strings.
-    """
-    if not raw:
-        return []
-    return re.findall(r'\("([^"]*)"\s+"([^"]*)"\)', raw)
 
 
 def _tokenize_top_level(body: str, *,
@@ -40,8 +32,7 @@ def _tokenize_top_level(body: str, *,
     """Split ``body`` into top-level SKILL tokens, respecting quotes/parens.
 
     A token is one of:
-      - a balanced ``(...)`` group (always — that's the basic reason
-        this helper exists)
+      - a balanced ``(...)`` group (always)
       - a double-quoted ``"..."`` string (yielded if ``include_strings``)
       - a bare atom — a whitespace-delimited run containing no ``(``/``)`` —
         (yielded if ``include_atoms``)
@@ -98,11 +89,7 @@ def _tokenize_top_level(body: str, *,
 
 
 def _scan_top_groups(body: str) -> list[str]:
-    """Split at top-level parens: ``(..) (..) (..)`` → list of ``(..)`` strings.
-
-    Atoms and strings between groups are ignored — this is the common-case
-    wrapper around :func:`_tokenize_top_level` for "give me the lists".
-    """
+    """Split at top-level parens: ``(..) (..) (..)`` → list of ``(..)`` strings."""
     return _tokenize_top_level(body, include_groups=True,
                                 include_strings=False, include_atoms=False)
 
@@ -112,6 +99,9 @@ def _parse_sexpr(tok: str):
 
     ``"x"`` → ``"x"`` (unescaped), ``nil`` → ``None``, ``t`` → ``True``,
     ``(a b c)`` → list[...], bare number/symbol → original string.
+
+    Used by :func:`runs.read_results` to decode post-simulation result
+    values into numeric/string atoms that callers compute on.
     """
     tok = (tok or "").strip()
     if not tok:
@@ -157,112 +147,3 @@ def _parse_sexpr(tok: str):
                 i = j
         return items
     return tok
-
-
-def parse_skill_alist(raw: str) -> dict:
-    """Parse a SKILL association list ``(("k" v) ("k" v) ...)`` into a dict.
-
-    Values can be strings, ``nil`` (→ ``None``), ``t`` (→ ``True``), or
-    nested lists (→ Python lists).  Returns ``{}`` on empty / ``nil`` / parse
-    failure.  Keys that aren't quoted strings are skipped.
-    """
-    raw = (raw or "").strip().strip('"')
-    if not raw or raw == "nil":
-        return {}
-    if raw.startswith("(") and raw.endswith(")"):
-        raw = raw[1:-1]
-    result: dict = {}
-    for g in _scan_top_groups(raw):
-        items = _parse_sexpr(g)
-        if isinstance(items, list) and len(items) >= 2:
-            key = items[0]
-            if isinstance(key, str):
-                # Value: single item if pair, list if 3+.
-                result[key] = items[1] if len(items) == 2 else items[1:]
-    return result
-
-
-def _parse_sev_outputs(raw: str) -> list[dict]:
-    """Parse the flat nested list produced from expanding maeGetTestOutputs.
-
-    Input looks like ``((f1 f2 ... fN) (...) ...)``.  Each token is a quoted
-    string, ``nil``, ``t``, a number, or a raw SKILL expression (parens).
-    """
-    s = (raw or "").strip()
-    if not s or s == "nil":
-        return []
-    if s.startswith("("):
-        s = s[1:]
-    if s.endswith(")"):
-        s = s[:-1]
-
-    groups = _scan_top_groups(s)
-
-    def tokenize(group: str) -> list:
-        """One s-expr item = contiguous run until depth-0 whitespace.
-
-        A SKILL expression like ``dB20(((VF("/VOUTP") - ...)))`` is one token
-        even though it contains spaces and parens — the top-level scanner
-        ignores whitespace while inside quotes or balanced parens.
-        """
-        inner = group.strip()[1:-1]
-        tokens: list = []
-        i = 0
-        n = len(inner)
-        while i < n:
-            while i < n and inner[i].isspace():
-                i += 1
-            if i >= n:
-                break
-            start = i
-            depth = 0
-            in_str = False
-            while i < n:
-                ch = inner[i]
-                if in_str:
-                    if ch == '"' and inner[i - 1] != "\\":
-                        in_str = False
-                    i += 1
-                    continue
-                if ch == '"':
-                    in_str = True
-                elif ch == "(":
-                    depth += 1
-                elif ch == ")":
-                    if depth == 0:
-                        break  # unmatched — shouldn't happen
-                    depth -= 1
-                elif ch.isspace() and depth == 0:
-                    break
-                i += 1
-            tok = inner[start:i]
-            stripped = tok.strip()
-            if stripped == "nil":
-                tokens.append(None)
-            elif stripped == "t":
-                tokens.append(True)
-            elif stripped.startswith('"') and stripped.endswith('"') and len(stripped) >= 2:
-                tokens.append(stripped[1:-1])
-            else:
-                tokens.append(stripped)
-        return tokens
-
-    entries = []
-    for g in groups:
-        toks = tokenize(g)
-        while len(toks) < len(_OUTPUT_FIELDS):
-            toks.append(None)
-        raw = dict(zip(_OUTPUT_FIELDS, toks[:len(_OUTPUT_FIELDS)]))
-        expr = raw.get("expr")
-        kind = "computed" if expr and expr != "nil" else "save-only"
-        # Final shape: ``kind`` up front, then only the non-empty fields.
-        # No analysis-from-expr inference here — that's a domain heuristic
-        # ("VF means ac") that belongs in a downstream consumer, not in
-        # the parser whose job is to mirror Cadence's truth.
-        entry: dict = {"kind": kind}
-        for k in _OUTPUT_FIELDS:
-            v = raw.get(k)
-            if v is not None and v != "" and v != []:
-                entry[k] = v
-        entries.append(entry)
-    return entries

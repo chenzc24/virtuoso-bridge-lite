@@ -71,25 +71,33 @@ active_state:
     - variables               # per-test vars (sdb has globals too)
     - outputs                 # per-test output definitions
     - modelSetup              # model file selection
-    - simulatorOptions        # spectre options overrides
     - environmentOptions      # asiEnv key/value pairs
     - rfstim                  # RF stimulus (PSS large-signal sources)
+    # Simulator engine selection — the Spectre X accuracy preset
+    # (AX / CX / MX) and APS-vs-Spectre-X choice live here.
+    - turboOptions            # uniMode / spectreXAccuracyScale / mtOption / ...
+    # Optional per-test setups — populated only when the user uses these
+    # features, but high-signal when populated.
+    - mdlOptions              # MDL measurement testbench cell ref
+    - mtsSetup                # multi-technology simulation
+    - graphicalStimuli        # GUI-drawn stimulus waveforms
 
   components_drop:
-    # Mostly empty in typical use — uncomment to include.
+    # Pure GUI defaults across all observed cells (verified against
+    # 5 example_artifacts cells — 0 fields vary).  Uncomment under
+    # ``components_keep`` if you need them.
+    # - simulatorOptions       # spectre options (temp/reltol/...) — 151/152
+    #                          # fields are GUI defaults; uncomment to
+    #                          # capture user overrides of temp / tnom / etc.
     # - convergence            # convergence aids (gmin/homotopy/...)
     # - cosimOptions           # AMS / mixed-signal cosim
     # - devCheckingSetup       # device-checking / DC op-point check
     # - emirOptions            # EMIR (electromigration / IR drop)
     # - faultRules             # fault-injection rules
     # - faults                 # specific fault definitions
-    # - graphicalStimuli       # GUI-drawn stimulus waveforms
-    # - mdlOptions             # MDL measurement language
-    # - mtsSetup               # multi-technology sim setup
     # - opPoints               # operating-point save list
     # - otherInfo              # misc GUI scratch
     # - paramSetup             # parametric-analysis setup (sdb covers this)
     # - relxOptions            # RelXpert / reliability sim
     # - simulationFiles        # extra include / stim files
     # - subckts                # subckt overrides
-    # - turboOptions           # turbo / parallel sim
