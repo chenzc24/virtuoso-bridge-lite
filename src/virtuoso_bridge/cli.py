@@ -729,9 +729,8 @@ _SNAPSHOT_OPTS: dict = {
     "output_root":            None,
     "json":                   False,
     "include_output_values":  False,
-    "no_latest_history":      False,
-    "no_raw_skill":           False,
-    "no_metrics":             False,
+    "include_latest_history": True,    # default ON; --no-include-latest-history turns off
+    "debug":                  False,   # turn on raw_skill.json + probe_log.json
 }
 
 
@@ -816,9 +815,9 @@ def cli_snapshot() -> int:
         snap_dir = _maestro_to_dir(
             client, output_root=opts["output_root"],
             include_output_values=opts["include_output_values"],
-            include_latest_history=not opts["no_latest_history"],
-            include_raw_skill=not opts["no_raw_skill"],
-            include_metrics=not opts["no_metrics"],
+            include_latest_history=opts["include_latest_history"],
+            include_raw_skill=opts["debug"],   # dev-only by default
+            include_metrics=opts["debug"],     # dev-only by default
         )
         print(snap_dir)
         return 0
@@ -828,7 +827,7 @@ def cli_snapshot() -> int:
         result = poly_snapshot(client) if kind != "maestro" else poly_snapshot(
             client,
             include_output_values=opts["include_output_values"],
-            include_latest_history=not opts["no_latest_history"],
+            include_latest_history=opts["include_latest_history"],
         )
         json.dump(result, sys.stdout, indent=2, ensure_ascii=False, default=str)
         sys.stdout.write("\n")
@@ -839,44 +838,119 @@ def cli_snapshot() -> int:
         print(f"no Virtuoso window in focus  ({title or '(no title)'})", file=sys.stderr)
         return 1
     if kind != "maestro":
-        # Other kinds: just identify, don't try to read.
+        # Other kinds: just identify, no commentary.
         print(f"[{kind}] {title}")
-        print(f"(brief snapshot for {kind} not implemented; only maestro is wired up)")
         return 0
 
-    # Maestro brief: skip latest_history (the spectre.out scp is the
-    # bulk of the wall time).  Still pulls sdb once for vars/corners.
-    data = poly_snapshot(client, include_latest_history=False)["data"]
-    _print_maestro_brief(data, title)
+    # Maestro brief: skip the spectre.out scp (still slow), but DO pull
+    # find_history_paths to compute the .log + spectre.out paths so the
+    # user knows where to look.  ~1 sdb scp + ~3 SKILL round-trips.
+    snap_dict = poly_snapshot(client, include_latest_history=False)
+    _print_maestro_brief(snap_dict["data"])
     return 0
 
 
-def _print_maestro_brief(d: dict, title: str) -> None:
-    sess     = d.get("session") or {}
-    vars_    = d.get("variables") or {}
-    g        = vars_.get("globals") or {}
-    pt       = vars_.get("per_test") or {}
-    sweeps   = [k for k, v in g.items()
-                if v.get("kind") in ("range_sweep", "list_sweep")]
-    enabled  = d.get("corners_enabled") or []
-    odefs    = d.get("output_defs") or []
-    computed = sum(1 for o in odefs if o.get("kind") == "computed")
-    analyses = list((d.get("analyses") or {}).keys())
+def _format_var_value(v: dict) -> str:
+    """Pretty one-liner for a sdb variable value_info."""
+    raw = v.get("raw", "")
+    kind = v.get("kind", "scalar")
+    enabled_tag = "" if v.get("enabled", True) else "  [disabled]"
+    if kind == "range_sweep":
+        return (f"{raw}  (sweep, {v.get('points_count','?')} points: "
+                f"{v.get('start')}→{v.get('stop')} step {v.get('step')}){enabled_tag}")
+    if kind == "list_sweep":
+        vals = ", ".join(v.get("values", []))
+        return f"{raw}  (sweep over {vals}){enabled_tag}"
+    return f"{raw}{enabled_tag}"
+
+
+def _print_maestro_brief(d: dict) -> None:
+    sess      = d.get("session") or {}
+    vars_     = d.get("variables") or {}
+    g         = vars_.get("globals") or {}
+    pt        = vars_.get("per_test") or {}
+    enabled   = d.get("corners_enabled") or []
+    cdetail   = d.get("corners_detail") or {}
+    odefs     = d.get("output_defs") or []
+    computed  = sum(1 for o in odefs if o.get("kind") == "computed")
+    analyses  = list((d.get("analyses") or {}).keys())
+    paths     = d.get("paths") or {}
+    histories = d.get("histories") or []
 
     print(f"focused : [{sess.get('app','?')}] {d.get('location','')}  "
           f"({sess.get('mode','?')}{', unsaved' if sess.get('unsaved') else ''})")
     print(f"session : {sess.get('id','')}  test={sess.get('test','')}")
     if analyses:
         print(f"analyses: {', '.join(analyses)}")
-    pt_brief = ", ".join(f"{t}={len(v)}" for t, v in pt.items()) if pt else "—"
-    sweep_str = f"  sweeps={sweeps}" if sweeps else ""
-    print(f"vars    : {len(g)} globals, per_test={{{pt_brief}}}{sweep_str}")
-    print(f"corners : {len(enabled)} enabled  {enabled}")
+
+    # --- Variables (full expansion) ---
+    if g:
+        print(f"variables (global, {len(g)}):")
+        for name, info in g.items():
+            print(f"  {name:<40}  {_format_var_value(info)}")
+    for test_name, vmap in pt.items():
+        if not vmap:
+            continue
+        print(f"variables (per_test / {test_name}, {len(vmap)}):")
+        for name, info in vmap.items():
+            print(f"  {name:<40}  {_format_var_value(info)}")
+    if not g and not any(pt.values()):
+        print(f"variables: (none)")
+
+    # --- Corners (full expansion of enabled) ---
+    print(f"corners ({len(enabled)} enabled):")
+    if not enabled:
+        print(f"  (none enabled)")
+    for name in enabled:
+        c = cdetail.get(name) or {}
+        temp = c.get("temperature") or []
+        cvars = c.get("vars") or {}
+        models = [m for m in (c.get("models") or []) if m.get("enabled")]
+        bits = []
+        if temp:
+            bits.append(f"T={'/'.join(temp)}")
+        if cvars:
+            bits.append("vars=" + ",".join(f"{k}={v}" for k, v in cvars.items()))
+        if models:
+            bits.append(f"models={len(models)}")
+        suffix = ("  " + "  ".join(bits)) if bits else ""
+        print(f"  {name}{suffix}")
+
     if odefs:
-        print(f"outputs : {len(odefs)} ({computed} computed)")
-    sr = d.get("scratch_root")
-    if sr:
-        print(f"scratch : {sr}")
+        print(f"outputs ({len(odefs)}, {computed} computed):")
+        for o in odefs:
+            kind_o = o.get("kind", "?")
+            name = o.get("name") or o.get("signal") or "(unnamed)"
+            ana  = o.get("analysis", "")
+            ana_tag = f" [{ana}]" if ana else ""
+            if kind_o == "computed":
+                expr = o.get("expr", "")
+                if len(expr) > 80:
+                    expr = expr[:77] + "..."
+                print(f"  {name:<24}{ana_tag:<10} {expr}")
+            else:
+                # save-only — show signal + type
+                t = o.get("type") or ""
+                print(f"  {name:<24}  save-only ({t})")
+
+    # --- Latest run paths (for grep / inspection) ---
+    # The .log lives in the OA library at a deterministic path; the
+    # spectre.out lives in scratch and needs find_history_paths data.
+    results_base = paths.get("results_base") or ""
+    latest_hist = ""
+    latest_spectre = ""
+    if histories:
+        non_empty = [h for h in histories if h.get("runs")]
+        latest_entry = (non_empty or histories)[-1]
+        latest_hist = latest_entry.get("name", "")
+        runs = latest_entry.get("runs") or []
+        if runs:
+            latest_spectre = (runs[0].get("psf") or {}).get("spectre_out", "")
+
+    if latest_hist and results_base:
+        print(f".log    : {results_base}/{latest_hist}.log")
+    if latest_spectre:
+        print(f".out    : {latest_spectre}")
 
 
 def cli_screenshot() -> int:
@@ -964,14 +1038,21 @@ def build_parser() -> argparse.ArgumentParser:
                               "Without -o, prints a brief summary to stdout.")
     sp_snap.add_argument("--json", action="store_true",
                          help="Print full snapshot dict as JSON to stdout (overrides default brief)")
-    sp_snap.add_argument("--include-output-values", action="store_true",
-                         help="(maestro) Pull simulation output scalars (GUI mode required)")
-    sp_snap.add_argument("--no-latest-history", action="store_true",
-                         help="(maestro -o ROOT) Skip the newest-history log + spectre.out tail")
-    sp_snap.add_argument("--no-raw-skill", action="store_true",
-                         help="(maestro -o ROOT) Don't write raw_skill.json")
-    sp_snap.add_argument("--no-metrics", action="store_true",
-                         help="(maestro -o ROOT) Don't write probe_log.json")
+    import argparse as _ap
+    sp_snap.add_argument("--include-output-values",
+                         dest="include_output_values",
+                         action=_ap.BooleanOptionalAction, default=False,
+                         help="(maestro) Pull simulation output scalars "
+                              "(default off; GUI mode required)")
+    sp_snap.add_argument("--include-latest-history",
+                         dest="include_latest_history",
+                         action=_ap.BooleanOptionalAction, default=True,
+                         help="(maestro -o ROOT) Persist newest-history .log + "
+                              "spectre.out (default on)")
+    sp_snap.add_argument("--debug", action="store_true",
+                         help="(maestro -o ROOT) Also write raw_skill.json (every "
+                              "execute_skill input/output) and probe_log.json "
+                              "(per-call timing).")
     sp_snap.add_argument("-p", "--profile", default=None,
                          help="Connection profile")
     sp_snap.add_argument("--env", default=None,
