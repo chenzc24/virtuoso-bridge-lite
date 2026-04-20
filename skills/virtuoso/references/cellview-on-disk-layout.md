@@ -156,22 +156,38 @@ and keep `<field Name="index">` in sync.
 
 ## `data.dm` binary format
 
-Layout (IC6.1.8):
+Layout (IC6.1.8, verified empirically — one example, may vary):
 
 ```
 +0x000  magic      67 45 23 01        # 0x01234567 LE
-        version    05 00 03 00
-+0x010  offset table, 8-byte LE integers, each pointing into string pool
-...
-+0x5xx  string pool: NUL-terminated ASCII, 8-byte aligned
-        "viewSubType\0" "maestro\0"
-        "testName\0"    "<test_name>\0"
-        "22.60.077\0"   # tool version
-        ...
+        version    05 00 03 00        # LE16 major.minor = 5.3
++0x008  reserved (8 bytes, zero)
++0x010  descriptor table: 8-byte LE words, mix of
+          - small ints (property tag / type IDs)
+          - in-file byte offsets (pointing into the string pools)
+          - sentinel -1 (= 0xFF..FF) marking section boundaries
++0x170  zero padding (slack space, grows/shrinks across edits)
++0x540  env/tool string pool (tool version, build platform, timestamps)
+          "2.2-p001 or above\0"              min-compat version
+          "22.60.077\0" "22.60.077\0"        writer / file version
+          "linux_rhel60_64 gcc_6.3.0\0"      build platform
+          <LE64 unix ctime> <LE64 unix mtime>
++0x770  user property pool (per-view hints, NOT load-bearing)
+          "viewSubType\0" "maestro\0"
+          "testName\0"    "<last active test>\0"
+          ...                                # tightly packed, not 8-aligned
++0x800  secondary descriptor block (enum/type registry for supported tags)
 ```
 
-**The offset table holds absolute byte positions.** Any change to string
-length shifts the pool, invalidates every downstream offset, and causes
+Strings within a pool are **tightly NUL-terminated — not individually
+8-byte padded**. The pool *starts* on an 8-byte boundary, but consecutive
+strings sit end-to-NUL-start-to-next; a 9-character value immediately
+precedes the next string at +9. The descriptor-table offsets therefore
+point at absolute byte positions, not aligned slots.
+
+**The descriptor table holds absolute byte positions.** Any change to
+a string's byte length shifts every byte after it, invalidates every
+downstream offset in the table, and causes
 `DB-260009: dbOpenBag: Fail to open prop. bag` on next open.
 
 **Do not sed `data.dm`.** To modify:
