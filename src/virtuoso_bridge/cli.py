@@ -20,17 +20,52 @@ def _env_template_path() -> Path:
     return Path(__file__).with_name("resources") / ".env_template"
 
 
-def _generate_env_template() -> str:
+def _parse_user_host(s: str) -> tuple[str | None, str]:
+    """Split ``user@host`` or ``host`` into ``(user, host)``."""
+    if "@" in s:
+        user, _, host = s.partition("@")
+        return (user or None), host
+    return None, s
+
+
+def _generate_env_template(
+    remote_user: str | None = None,
+    remote_host: str | None = None,
+    jump_user: str | None = None,
+    jump_host: str | None = None,
+) -> str:
     import getpass
     from virtuoso_bridge.virtuoso.basic.bridge import _default_remote_port
-    try:
-        username = getpass.getuser()
-    except Exception:
-        username = ""
-    remote_port = _default_remote_port(username)
+
+    # Port hash follows the *remote* username when provided — otherwise
+    # fall back to the local user so existing init-without-args still
+    # picks a stable per-machine default.
+    port_user = remote_user
+    if not port_user:
+        try:
+            port_user = getpass.getuser()
+        except Exception:
+            port_user = ""
+    remote_port = _default_remote_port(port_user)
     local_port = remote_port + 1
-    template = _env_template_path().read_text(encoding="utf-8")
-    return template.format(remote_port=remote_port, local_port=local_port)
+    text = _env_template_path().read_text(encoding="utf-8").format(
+        remote_port=remote_port, local_port=local_port
+    )
+
+    def _sub_line(pattern: str, replacement: str) -> str:
+        return re.sub(
+            pattern, lambda _m: replacement, text, count=1, flags=re.MULTILINE
+        )
+
+    if remote_host:
+        text = _sub_line(r"^VB_REMOTE_HOST=$", f"VB_REMOTE_HOST={remote_host}")
+    if remote_user:
+        text = _sub_line(r"^VB_REMOTE_USER=$", f"VB_REMOTE_USER={remote_user}")
+    if jump_host:
+        text = _sub_line(r"^# VB_JUMP_HOST=$", f"VB_JUMP_HOST={jump_host}")
+    if jump_user:
+        text = _sub_line(r"^# VB_JUMP_USER=$", f"VB_JUMP_USER={jump_user}")
+    return text
 
 
 def _load_cli_env() -> Path | None:
@@ -43,15 +78,39 @@ def _fmt(seconds: float) -> str:
 
 # -- init -------------------------------------------------------------------
 
-def cli_init() -> int:
+def cli_init(
+    remote: str | None = None,
+    jump: str | None = None,
+    force: bool = False,
+) -> int:
+    remote_user = remote_host = None
+    if remote:
+        remote_user, remote_host = _parse_user_host(remote)
+    jump_user = jump_host = None
+    if jump:
+        jump_user, jump_host = _parse_user_host(jump)
+
     env_path = default_user_env_path()
     env_path.parent.mkdir(parents=True, exist_ok=True)
-    if env_path.exists():
+    existed = env_path.exists()
+    if existed and not force:
         print(f".env already exists at {env_path}")
+        if remote or jump:
+            print("  (arguments ignored; pass --force to overwrite)")
     else:
-        env_path.write_text(_generate_env_template(), encoding="utf-8")
-        print(f".env created at {env_path}")
-    print("\nNext: edit .env, set VB_REMOTE_HOST, then run: virtuoso-bridge start")
+        content = _generate_env_template(
+            remote_user=remote_user,
+            remote_host=remote_host,
+            jump_user=jump_user,
+            jump_host=jump_host,
+        )
+        env_path.write_text(content, encoding="utf-8")
+        print(f".env {'overwritten' if existed else 'created'} at {env_path}")
+
+    if remote_host and not (existed and not force):
+        print("\nNext: run `virtuoso-bridge start`")
+    else:
+        print("\nNext: edit .env, set VB_REMOTE_HOST, then run: virtuoso-bridge start")
     return 0
 
 
@@ -790,7 +849,20 @@ def cli_screenshot() -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="virtuoso-bridge")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("init", help="Create a starter .env")
+    sp_init = subparsers.add_parser("init", help="Create a starter .env")
+    sp_init.add_argument(
+        "remote", nargs="?", default=None,
+        help="Remote target as [user@]host (e.g. designer1@thu-wei). "
+             "Port hash uses the remote username when given.",
+    )
+    sp_init.add_argument(
+        "-J", "--jump", default=None,
+        help="Jump host as [user@]host (e.g. designer1@bastion.example.com)",
+    )
+    sp_init.add_argument(
+        "--force", action="store_true",
+        help="Overwrite an existing .env",
+    )
     for name, hlp in [
         ("start", "Start SSH tunnel + deploy daemon"),
         ("stop", "Stop the SSH tunnel"),
@@ -867,7 +939,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     dispatch = {
-        "init": cli_init,
+        "init": lambda: cli_init(
+            remote=getattr(args, "remote", None),
+            jump=getattr(args, "jump", None),
+            force=getattr(args, "force", False),
+        ),
         "start": cli_start,
         "stop": cli_stop,
         "restart": cli_restart,

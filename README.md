@@ -94,7 +94,8 @@ The divergence is in what's built on top: skillbridge stays thin — a Pythonic 
 
 ```bash
 pip install -e .              # install
-virtuoso-bridge init          # generate ~/.virtuoso-bridge/.env — fill in your SSH host
+virtuoso-bridge init user@host [-J user@jump-host]   # write ~/.virtuoso-bridge/.env in one shot
+                                                     # (no args: empty template — edit it yourself)
 virtuoso-bridge start         # start SSH tunnel
 virtuoso-bridge status        # verify connection
 virtuoso-bridge windows       # list all open Virtuoso windows

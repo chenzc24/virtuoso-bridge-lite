@@ -149,13 +149,14 @@
     <pre><code><span class="cmt"># 1. Install</span>
 <span class="cmd">pip install -e .</span>
 
-<span class="cmt"># 2. Generate config</span>
-<span class="cmd">virtuoso-bridge init</span>        <span class="cmt"># creates .env template</span>
+<span class="cmt"># 2. Generate config (fills host/user/jump + port in one shot)</span>
+<span class="cmd">virtuoso-bridge init</span> user@host <span class="cmd">-J</span> user@jump-host
+<span class="cmt">#   or `virtuoso-bridge init` for an empty template to edit manually</span>
 
-<span class="cmt"># 3. Edit .env with your connection details</span>
+<span class="cmt"># 3. (only if step 2 left anything blank) edit ~/.virtuoso-bridge/.env</span>
 <span class="cmt"># VB_REMOTE_HOST=my-server</span>
 <span class="cmt"># VB_REMOTE_USER=username</span>
-<span class="cmt"># VB_REMOTE_PORT=65081</span>
+<span class="cmt"># VB_REMOTE_PORT=65081     # auto-assigned by hashing VB_REMOTE_USER</span>
 <span class="cmt"># VB_LOCAL_PORT=65082</span>
 
 <span class="cmt"># 4. Start the bridge</span>
@@ -320,7 +321,7 @@ bridge = VirtuosoClient.<span class="fn">local</span>(port=65432)</code></pre>
       <h3>CLI commands</h3>
       <table>
         <tr><th>Command</th><th>Description</th></tr>
-        <tr><td><code>virtuoso-bridge init</code></td><td>Create .env template</td></tr>
+        <tr><td><code>virtuoso-bridge init [user@host] [-J user@jump] [--force]</code></td><td>Write <code>~/.virtuoso-bridge/.env</code>; arguments fill host/user/jump, <code>--force</code> overwrites an existing file</td></tr>
         <tr><td><code>virtuoso-bridge start</code></td><td>Start SSH tunnel + deploy daemon</td></tr>
         <tr><td><code>virtuoso-bridge status</code></td><td>Check tunnel, daemon, hostname, Spectre license</td></tr>
         <tr><td><code>virtuoso-bridge restart</code></td><td>Restart tunnel</td></tr>

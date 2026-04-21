@@ -31,10 +31,19 @@ uv pip install -e .
 **1. Generate config**
 
 ```bash
-virtuoso-bridge init        # creates ~/.virtuoso-bridge/.env
+# Preferred — fill host/user/jump in one shot:
+virtuoso-bridge init designer1@thu-wei -J designer1@bastion.example.com
+
+# Or — empty template (you edit `.env` manually in step 2):
+virtuoso-bridge init
 ```
 
-**2. Edit `.env`**
+Both forms create `~/.virtuoso-bridge/.env`. `-J/--jump` accepts `[user@]host`.
+`VB_REMOTE_PORT` / `VB_LOCAL_PORT` are auto-assigned by hashing the **remote**
+username (stable per remote user, so two users on the same host don't collide).
+Re-running `init` on an existing `.env` is a no-op; pass `--force` to overwrite.
+
+**2. Edit `.env`** (only if step 1 did not already fill it in)
 
 > **Where to put `.env`:** By default the bridge checks `./.env` first, then `~/.virtuoso-bridge/.env`. For CLI commands such as `virtuoso-bridge start`, `--env FILE` has the highest priority.
 
@@ -130,7 +139,7 @@ Your machine  ──SSH──►  Jump host (bastion)  ──SSH──►  Compu
 `VB_REMOTE_HOST` must be the machine running Virtuoso, **not** the jump host. This is the most common misconfiguration.
 
 1. **Check `.env`** — does it exist and have `VB_REMOTE_HOST` set?
-   - If not: `pip install -e .` then `virtuoso-bridge init`, ask the user to fill in their SSH host.
+   - If not: `pip install -e .` then ask the user for their SSH target. If they give `user@host` (plus optional jump), run `virtuoso-bridge init user@host [-J user@jump]` — it fills everything in one shot. Otherwise run `virtuoso-bridge init` for an empty template and ask them to fill `VB_REMOTE_HOST`.
    - Verify: `VB_REMOTE_HOST` = compute host (where Virtuoso runs), `VB_JUMP_HOST` = bastion (if any).
 
 2. **Check SSH** — `ssh <VB_REMOTE_HOST> echo ok` (or via jump host if configured)
@@ -232,7 +241,7 @@ M0 (VOUT VIN VSS VSS) nch_ulvt_mac l=30n w=1u nf=1
 ## CLI reference
 
 ```bash
-virtuoso-bridge init            # create ~/.virtuoso-bridge/.env
+virtuoso-bridge init [user@host] [-J user@jump] [--force]   # write ~/.virtuoso-bridge/.env
 virtuoso-bridge start           # start SSH tunnel + deploy daemon
 virtuoso-bridge stop            # stop the SSH tunnel
 virtuoso-bridge restart         # force-restart
