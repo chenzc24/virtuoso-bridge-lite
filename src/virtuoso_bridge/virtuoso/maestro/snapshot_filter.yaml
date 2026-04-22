@@ -124,115 +124,108 @@ active_state:
 # per-point dir but never listed (e.g. ``*.raw`` binary waveforms,
 # ``wavedb/``, ``modelParameter.info``) are deliberately skipped.
 #
-# Each group carries one of these recommendation tags so you can decide
-# what to opt in at a glance:
+# Every file carries its own recommendation tag as the first token of
+# its trailing comment.  Group headers are just topic separators —
+# each file is judged individually.
 #
-#   [KEEP]        ← on by default; unambiguously useful (design /
-#                   testbench / sim result); recommended to keep enabled
-#   [REDUNDANT]   ← off by default; same info already in a [KEEP] file;
-#                   enabling just adds bytes, no new information
-#   [SCAFFOLDING] ← off by default; Cadence netlist-assembly internals,
-#                   no design semantics
-#   [METADATA]    ← off by default; per-run progress / IPC / counters
-#   [DEBUG-ONLY]  ← off by default; large text logs, only useful when
-#                   debugging a failed simulation
-#   [GUI-CONFIG]  ← off by default; Maestro session prefs, irrelevant
-#                   to the circuit or the sim
-#   [RARELY]      ← off by default; occasionally useful but niche
-#   [NEVER]       ← off by default; listed only so you know they exist
-#                   — turning these on explodes snapshot size without
-#                   adding design-level information
+#   [KEEP]        on by default; unambiguously useful (design /
+#                 testbench / sim result); recommended
+#   [REDUNDANT]   same info already in a [KEEP] file, different form;
+#                 enabling just adds bytes, no new information
+#   [SCAFFOLDING] Cadence netlist-assembly internals, no design semantics
+#   [METADATA]    per-run progress / IPC / counters
+#   [DEBUG-ONLY]  large text logs, only useful when debugging a failed sim
+#   [GUI-CONFIG]  Maestro / ADE session prefs, irrelevant to circuit/sim
+#   [RARELY]      occasionally useful but niche
+#   [NEVER]       listed only so you know they exist — turning any on
+#                 explodes snapshot size without adding design-level info
 
 per_point:
 
   # Files under each per-point ``.../netlist/`` directory.
   netlist:
-    # --- [KEEP] Budget-A must-reads (the only 4 worth reading per point) ---
-    - netlist              # main SPICE netlist (subckts + primitive instances)
-    - input.scs            # top-level testbench (models + analyses + parameters)
-    - qpInformation.ils    # FOM / output-expression definitions
-    - paramInfo.ils        # corner-label + run/point id
+    # --- Budget-A must-reads ---
+    - netlist              # [KEEP] main SPICE netlist (subckts + primitive instances)
+    - input.scs            # [KEEP] top-level testbench (models + analyses + parameters)
+    - qpInformation.ils    # [KEEP] FOM / output-expression definitions
+    - paramInfo.ils        # [KEEP] corner-label + run/point id
 
-    # --- [REDUNDANT] Same info as a [KEEP] file, different form ----------
-    # - .controlStatements   # = input.scs's pss/pnoise/pm0/save block
-    # - .designVariables     # = input.scs's `parameters ...` line
-    # - .modelFiles          # = input.scs's PDK `include`
-    # - .includedModels      # MOS-model-name list (also visible in netlist)
-    # - netlistHeader        # leading comments already inside `netlist`
-    # - variables_file       # PSF-format VDD/Vcm snapshot (= .designVariables)
-    # - designInfo           # = state_from_skill.txt's designInfo probe
-    # - toolArgs.ils         # mostly abs paths; relevant bits in state_from_skill
-    # - exprOutputs.json     # JSON form of qpInformation.ils content
+    # --- Same info as a [KEEP] file, different form ---
+    # - .controlStatements   # [REDUNDANT] = input.scs's pss/pnoise/pm0/save block
+    # - .designVariables     # [REDUNDANT] = input.scs's `parameters ...` line
+    # - .modelFiles          # [REDUNDANT] = input.scs's PDK `include`
+    # - .includedModels      # [REDUNDANT] MOS-model-name list (also visible in netlist)
+    # - netlistHeader        # [REDUNDANT] leading comments already inside `netlist`
+    # - variables_file       # [REDUNDANT] PSF-format VDD/Vcm snapshot (= .designVariables)
+    # - designInfo           # [REDUNDANT] = state_from_skill.txt's designInfo probe
+    # - toolArgs.ils         # [REDUNDANT] mostly abs paths; relevant bits in state_from_skill
+    # - exprOutputs.json     # [REDUNDANT] JSON form of qpInformation.ils content
 
-    # --- [SCAFFOLDING] Netlist-assembly internals, no design semantics --
-    # - control              # `[?netlistHeader] [?variables] ...` directive
-    # - spectre.inp          # 1-line "Spectre Source Statements" comment
-    # - spectre.sim          # entirely commented-out example analyses
-    # - tmpNetlistFile       # 1-line `include "netlist"` stub
-    # - netlistFooter        # always 0 bytes
-    # - si.env               # netlister internal env
+    # --- Netlist-assembly internals ---
+    # - control              # [SCAFFOLDING] `[?netlistHeader] [?variables] ...` directive
+    # - spectre.inp          # [SCAFFOLDING] 1-line "Spectre Source Statements" comment
+    # - spectre.sim          # [SCAFFOLDING] entirely commented-out example analyses
+    # - tmpNetlistFile       # [SCAFFOLDING] 1-line `include "netlist"` stub
+    # - netlistFooter        # [SCAFFOLDING] always 0 bytes
+    # - si.env               # [SCAFFOLDING] netlister internal env
 
-    # --- [METADATA] Runtime / progress / spectre invocation -------------
-    # - runSimulation        # spectre CLI line used to launch sim
-    # - tempRun              # duplicate of runSimulation
-    # - .tries
-    # - .spectre_port
-    # - .netlistPointTimeStamp
+    # --- Runtime / progress / spectre invocation ---
+    # - runSimulation        # [METADATA] spectre CLI line used to launch sim
+    # - tempRun              # [METADATA] duplicate of runSimulation
+    # - .tries               # [METADATA] retry counter
+    # - .spectre_port        # [METADATA] spectre IPC port
+    # - .netlistPointTimeStamp   # [METADATA] netlist generation timestamp
 
-    # --- [DEBUG-ONLY] Verbose per-point logs ----------------------------
-    # - artistLogFile        # PSF log header block
-    # - artSimEnvLog         # ~3-line netlister status
-    # - amps_evaluator.log   # single process id
-    # - exprOutputs.log      # verbose output-expr evaluation log
-    # - si.foregnd.log       # full Cadence session log (~35 KB per point)
+    # --- Verbose per-point logs ---
+    # - artistLogFile        # [DEBUG-ONLY] PSF log header block
+    # - artSimEnvLog         # [DEBUG-ONLY] ~3-line netlister status
+    # - amps_evaluator.log   # [DEBUG-ONLY] single process id
+    # - exprOutputs.log      # [DEBUG-ONLY] verbose output-expr evaluation log
+    # - si.foregnd.log       # [DEBUG-ONLY] full Cadence session log (~35 KB per point)
 
-    # --- [GUI-CONFIG] Maestro / ADE session prefs, irrelevant to sim ----
-    # - .vdsenv.il
-    # - .vdsinit.il
-    # - .__master.optionFile
-    # - .__master.termorder   # top-cell pin order (already in netlist)
-    # - ".*.parameters"       # per-subckt MOS-type list (dotfile glob)
+    # --- Maestro / ADE session prefs ---
+    # - .vdsenv.il           # [GUI-CONFIG] ADE GUI env toggles
+    # - .vdsinit.il          # [GUI-CONFIG] ADE GUI init hooks
+    # - .__master.optionFile # [GUI-CONFIG] DSPF / netlist processing options
+    # - .__master.termorder  # [GUI-CONFIG] top-cell pin order (already in netlist)
+    # - ".*.parameters"      # [GUI-CONFIG] per-subckt MOS-type list (dotfile glob)
 
   # Files under each per-point ``.../psf/`` directory.
   psf:
-    # --- [KEEP] Spectre simulator console output ---
-    - spectre.out          # stdout of this point's spectre run
-    - logFile              # per-point spectre log
+    # --- Spectre console output ---
+    - spectre.out          # [KEEP] stdout of this point's spectre run
+    - logFile              # [KEEP] per-point spectre log
 
-    # --- [KEEP] DC operating point ---
-    - dcOp.dc
-    - dcOpInfo.info
+    # --- DC operating point ---
+    - dcOp.dc              # [KEEP] DC bias solution (node voltages + branch currents)
+    - dcOpInfo.info        # [KEEP] per-instance DC op info (region / Vgs / Vds / gm / ...)
 
-    # --- [KEEP] PSF design-variable snapshot for this point ---
-    - variables_file
+    # --- PSF design-variable snapshot ---
+    - variables_file       # [KEEP] exact VDD/Vcm/... values used in this point
 
-    # --- [KEEP] Per-analysis result files (matched by suffix glob) ------
-    - "*.ac"
-    - "*.dc"
-    - "*.tran"
-    - "*.noise"
-    - "*.pss"
-    - "*.pnoise"
-    - "*.pac"
-    - "*.pxf"
-    - "*.stb"
-    - "*.xf"
-    - "*.sens"
+    # --- Per-analysis result files (matched by suffix glob) ---
+    - "*.ac"               # [KEEP] AC sweep result
+    - "*.dc"               # [KEEP] DC sweep result
+    - "*.tran"             # [KEEP] transient waveform
+    - "*.noise"            # [KEEP] noise spectrum
+    - "*.pss"              # [KEEP] PSS periodic steady state
+    - "*.pnoise"           # [KEEP] PSS-based pnoise
+    - "*.pac"              # [KEEP] PSS-based pac
+    - "*.pxf"              # [KEEP] PSS-based pxf
+    - "*.stb"              # [KEEP] stability analysis (loop gain / phase)
+    - "*.xf"               # [KEEP] transfer function
+    - "*.sens"             # [KEEP] sensitivity analysis
 
-    # --- [RARELY] Spectre state / initial conditions --------------------
-    # - spectre.dc
-    # - spectre.ic
-    # - spectre.fc
+    # --- Spectre state / initial conditions ---
+    # - spectre.dc           # [RARELY] saved DC state for re-use
+    # - spectre.ic           # [RARELY] initial conditions
+    # - spectre.fc           # [RARELY] force conditions
 
-    # --- [NEVER] PDK dumps + binary waveforms ---------------------------
-    # Listed only for reference — enabling any of these balloons the
-    # snapshot size without adding DUT-level information (PDK models are
-    # already available via .modelFiles, binary waveforms should be read
-    # through reader.runs.read_results instead of copied verbatim).
-    # - modelParameter.info          # ~100 KB PDK model params, already in .scs
-    # - element.info                 # post-flatten per-element bias
-    # - primitives.info.primitives   # PDK primitive catalog
-    # - subckts.info.subckts         # PDK subckt dumps
-    # - designParamVals.info         # derived parameter expansions
-    # - outputParameter.info         # derived output-expr dumps
-    # - "*.raw"                      # binary PSF waveforms (MB-scale)
+    # --- PDK dumps + binary waveforms — explode size, no design info ---
+    # - modelParameter.info          # [NEVER] ~100 KB PDK model params, already in .scs
+    # - element.info                 # [NEVER] post-flatten per-element bias (derivable from dcOpInfo.info)
+    # - primitives.info.primitives   # [NEVER] PDK primitive catalog
+    # - subckts.info.subckts         # [NEVER] PDK subckt dumps
+    # - designParamVals.info         # [NEVER] derived parameter expansions
+    # - outputParameter.info         # [NEVER] derived output-expr dumps
+    # - "*.raw"                      # [NEVER] binary PSF waveforms (MB-scale; use reader.runs.read_results)
