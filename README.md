@@ -110,6 +110,31 @@ client.execute_skill("1+2")  # VirtuosoResult(status=SUCCESS, output='3')
 
 For detailed setup (jump hosts, multi-profile, local mode), see [`AGENTS.md`](AGENTS.md).
 
+## Snapshot a maestro run
+
+Pull the currently-focused maestro session's setup + latest-run artifacts to a local folder:
+
+```bash
+virtuoso-bridge snapshot -o output                       # auto-picks newest history
+virtuoso-bridge snapshot -o output --history Interactive.160   # pin a specific history
+```
+
+Output tree (one example):
+
+```
+output/20260422_142137__MyLib__myTB/
+├── maestro.sdb, active.state                    # raw Cadence files
+├── state_from_sdb.xml, state_from_active_state.xml  # filtered, high-signal
+├── state_from_skill.txt                         # SKILL-probe setup summary
+└── Interactive.N/
+    ├── Interactive.N.{log,rdb,msg.db}           # run-level (rdb = SQLite)
+    └── <pt>/<tb>/
+        ├── netlist/   → netlist, input.scs, qpInformation.ils, paramInfo.ils
+        └── psf/       → spectre.out, logFile, dcOp.dc, *.ac, *.tran, ...
+```
+
+Per-point `netlist/` keeps only the 4 files that actually describe the design (main SPICE netlist, testbench top level, FOM definitions, corner label). Psf keeps stdout + logs + non-binary analysis results. The full rule set — including what's commented out and why — lives in [`src/virtuoso_bridge/virtuoso/maestro/snapshot_filter.yaml`](src/virtuoso_bridge/virtuoso/maestro/snapshot_filter.yaml); edit the YAML (uncomment / comment lines) to add or drop files, no code change needed. Binary waveforms (`*.raw`, `wavedb/`) are never pulled — read them through `reader.runs.read_results` instead.
+
 ## Exposing skills to your coding agent
 
 The `skills/` directory ships [Claude Code](https://claude.com/claude-code) skills
