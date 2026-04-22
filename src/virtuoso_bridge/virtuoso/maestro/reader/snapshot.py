@@ -134,24 +134,37 @@ def _dump_skill_text(snap_dir: Path, sections: list[tuple[str, str]]) -> None:
 #   psf/*.raw                      — huge PSF binary waveforms
 #   psf/wavedb/                    — proprietary waveform DB
 
-# Explicit whitelist of psf result filenames we pull (plus other
-# analysis-specific files matched by suffix below).
-_PSF_RESULT_NAMES = (
-    "dcOp.dc",
-    "dcOpInfo.info",
-    "variables_file",
-    "spectre.dc",
-    "spectre.ic",
-    "spectre.fc",
+# ---------------------------------------------------------------------------
+# Per-point file whitelists — loaded from resources/snapshot_filter.yaml
+# ---------------------------------------------------------------------------
+# Edit ``snapshot_filter.yaml`` (section ``per_point.netlist`` /
+# ``per_point.psf``) to control what ``snapshot -o`` pulls per point.
+# The YAML is the source of truth; the tuples below are a minimal
+# fallback used only if the file is unreadable (broken install etc.).
+
+_DEFAULT_NETLIST_FILES: tuple[str, ...] = (
+    "netlist", "input.scs", "qpInformation.ils", "paramInfo.ils",
 )
 
-# Suffix whitelist for spectre analysis output files.  Names are
-# ``<analysisName>.<suffix>`` where suffix equals the analysis type.
-_PSF_RESULT_SUFFIXES = (
-    ".ac", ".dc", ".tran", ".noise",
-    ".pss", ".pnoise", ".pac", ".pxf",
-    ".stb", ".xf", ".sens",
+_DEFAULT_PSF_FILES: tuple[str, ...] = (
+    "spectre.out", "logFile",
+    "dcOp.dc", "dcOpInfo.info", "variables_file",
+    "*.ac", "*.dc", "*.tran", "*.noise",
+    "*.pss", "*.pnoise", "*.pac", "*.pxf",
+    "*.stb", "*.xf", "*.sens",
 )
+
+
+def _per_point_list(key: str, fallback: tuple[str, ...]) -> tuple[str, ...]:
+    """Return the ordered include-list from ``per_point.<key>`` in
+    ``snapshot_filter.yaml``; fall back to *fallback* if the file or
+    key is missing."""
+    from ._parse_sdb import _load_filter_config
+    cfg = _load_filter_config()
+    raw = (cfg.get("per_point") or {}).get(key)
+    if isinstance(raw, list) and raw:
+        return tuple(str(x) for x in raw if x)
+    return fallback
 
 
 def _dump_run_artifacts(client: VirtuosoClient, snap_dir: Path, *,
@@ -183,25 +196,17 @@ def _dump_run_artifacts(client: VirtuosoClient, snap_dir: Path, *,
                    f"/results/maestro/{history}")
     remote_tar = f"/tmp/vb_snap_{uuid.uuid4().hex}.tar"
 
-    # Per-point find clauses.
-    #   Always: netlist/* + spectre.out + logFile.
-    #   include_results: whitelist psf/ result files by exact name or
-    #   analysis-suffix. We *do not* include all psf/* — PDK dumps
-    #   like modelParameter.info / element.info / primitives.info.*
-    #   are large (100s of KB each) and add no DUT-analysis value
-    #   (model params are already in .scs, per-element bias is
-    #   derivable from dcOpInfo.info).
-    clauses = "-path '*/netlist/*' -o -name spectre.out -o -name logFile"
+    # Per-point find clauses — driven by resources/snapshot_filter.yaml.
+    # Edit that YAML (per_point.netlist / per_point.psf) to change what's
+    # pulled; this function rereads it on every call.  `-path '*/<dir>/*'`
+    # scopes the match to the right subtree, each `-name` is exact or glob.
+    netlist_files = _per_point_list("netlist", _DEFAULT_NETLIST_FILES)
+    netlist_clause = " -o ".join(f"-name '{n}'" for n in netlist_files)
+    clauses = f"\\( -path '*/netlist/*' \\( {netlist_clause} \\) \\)"
     if include_results:
-        psf_names = " -o ".join(
-            f"-name '{n}'" for n in _PSF_RESULT_NAMES
-        )
-        psf_suffix = " -o ".join(
-            f"-name '*{s}'" for s in _PSF_RESULT_SUFFIXES
-        )
-        clauses += (f" -o \\( -path '*/psf/*' \\( "
-                    f"{psf_names} -o {psf_suffix} "
-                    f"\\) \\)")
+        psf_files = _per_point_list("psf", _DEFAULT_PSF_FILES)
+        psf_clause = " -o ".join(f"-name '{n}'" for n in psf_files)
+        clauses += f" -o \\( -path '*/psf/*' \\( {psf_clause} \\) \\)"
 
     # Maestro-level extra files (siblings of <history>.log):
     #   always:            <history>.log
