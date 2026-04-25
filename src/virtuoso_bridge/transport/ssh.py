@@ -190,15 +190,22 @@ class SSHRunner:
 
         # ControlMaster socket path for SSH connection multiplexing.
         # All ssh/scp calls to the same host reuse one TCP connection.
-        # Enabled by default on every OS; set VB_DISABLE_CONTROL_MASTER=1
-        # to opt out if a specific platform trips mux errors.
+        # Enabled by default on POSIX.  Disabled by default on Windows because
+        # the OpenSSH mux protocol is unreliable on Windows pipe semantics —
+        # both native System32 ssh.exe and Git-for-Windows ssh fail with
+        # ``mux_client_request_session: read from master failed: Connection
+        # reset by peer`` when run from a Python subprocess.  Users with a
+        # known-good Windows ssh.exe can opt in via VB_FORCE_CONTROL_MASTER=1.
         _disable_cm = os.environ.get("VB_DISABLE_CONTROL_MASTER", "").strip().lower() in ("1", "true", "yes")
         _force_cm = os.environ.get("VB_FORCE_CONTROL_MASTER", "").strip().lower() in ("1", "true", "yes")
-        self._use_control_master = _force_cm or (not _disable_cm)
+        self._use_control_master = _force_cm or (not _disable_cm and os.name != "nt")
 
         _user_part = user or "default"
         _tmp = tempfile.gettempdir()
-        self._control_path = f"{_tmp}/vb_ssh_{_user_part}@{host}:{jump_host or 'direct'}"
+        # Colons are illegal in Windows filenames; use '_' as the separator
+        # so the control socket path is valid on both POSIX and Windows.
+        _jump_tag = (jump_host or "direct").replace(":", "_")
+        self._control_path = f"{_tmp}/vb_ssh_{_user_part}@{host}_{_jump_tag}"
 
         # Persistent SSH shell = one long-lived ``ssh host sh -s`` subprocess
         # shared by every run_command call.  Turns N cold handshakes into 1.
