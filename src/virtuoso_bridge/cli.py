@@ -68,8 +68,16 @@ def _generate_env_template(
     return text
 
 
+_PRINTED_ENV_PATH: Path | None = None
+
+
 def _load_cli_env() -> Path | None:
-    return load_vb_env()
+    global _PRINTED_ENV_PATH
+    env_path = load_vb_env()
+    if env_path is not None and env_path != _PRINTED_ENV_PATH:
+        print(f"using .env: {env_path}")
+        _PRINTED_ENV_PATH = env_path
+    return env_path
 
 
 def _fmt(seconds: float) -> str:
