@@ -198,7 +198,10 @@ class SSHRunner:
 
         _user_part = user or "default"
         _tmp = tempfile.gettempdir()
-        self._control_path = f"{_tmp}/vb_ssh_{_user_part}@{host}:{jump_host or 'direct'}"
+        # ':' is illegal in Windows filenames; use '_' as the host/jump separator
+        # so the ControlPath is valid on both POSIX and Windows.
+        _jump_tag = (jump_host or "direct").replace(":", "_")
+        self._control_path = f"{_tmp}/vb_ssh_{_user_part}@{host}_{_jump_tag}"
 
         # Persistent SSH shell = one long-lived ``ssh host sh -s`` subprocess
         # shared by every run_command call.  Turns N cold handshakes into 1.
