@@ -202,6 +202,12 @@ def _start_one_profile(profile: str | None) -> int:
             print(f"  {manual_cmd}")
             return 1
 
+        state = SSHClient.read_state(profile)
+        if state:
+            setup_path = state.get("setup_path")
+            if setup_path:
+                _print_load_hint(setup_path)
+
         return 0
     finally:
         ssh.close()
