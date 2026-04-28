@@ -40,6 +40,12 @@ unless(boundp('RBLastBind) RBLastBind = "")
 unless(boundp('RBLastHost) RBLastHost = "")
 unless(boundp('RBLastIP) RBLastIP = "")
 
+; Daemon-reported runtime stats (counter / errors / uptime in seconds).
+; Updated by RBIpcErrHandler when the daemon emits a [RB-stat] line.
+unless(boundp('RBStatCount) RBStatCount = 0)
+unless(boundp('RBStatErrors) RBStatErrors = 0)
+unless(boundp('RBStatUptime) RBStatUptime = 0)
+
 procedure(RBIpcDataHandler(ipcId data)
   ; Handler for successful data received from the Python daemon.
   ; Code is executed via evalstring(), which bypasses CIW's interactive loop.
@@ -78,12 +84,24 @@ procedure(RBIpcErrHandler(ipcId data)
     ; separator argument -- on this IC6.1.8 install ``" \t\n"`` does
     ; NOT split on newline.  We build the separator with explicit
     ; char codes (TAB=9, LF=10) so behaviour is identical everywhere.
-    let((sep saw_banner prevPid)
+    let((sep saw_banner saw_stat prevPid)
         sep = strcat(" "
                      buildString(list(intToChar(9)))
                      buildString(list(intToChar(10))))
         prevPid = RBLastPid
         saw_banner = member("[RB-banner]" parseString(data sep))
+        saw_stat = member("[RB-stat]" parseString(data sep))
+        ; Parse [RB-stat] count=N errors=K uptime=Ts (latest one wins;
+        ; the daemon emits these throttled to ~1 Hz).
+        when(saw_stat
+            foreach(tok parseString(data sep)
+                when(strlen(tok) > 6 && equal(substring(tok 1 6) "count=")
+                    RBStatCount = atoi(substring(tok 7)))
+                when(strlen(tok) > 7 && equal(substring(tok 1 7) "errors=")
+                    RBStatErrors = atoi(substring(tok 8)))
+                when(strlen(tok) > 7 && equal(substring(tok 1 7) "uptime=")
+                    RBStatUptime = atoi(substring(tok 8))))
+            when(boundp('RBMonInstalled) errset(RBMRefresh())))
         when(saw_banner
             foreach(tok parseString(data sep)
                 when(strlen(tok) > 4 && equal(substring(tok 1 4) "pid=")
@@ -146,7 +164,11 @@ procedure(RBStart()
         errset(ipcKillProcess(RBIpc))
         RBIpc = 'unbound
         RBLastBind = ""
-        RBLastHost = "")
+        RBLastHost = ""
+        RBLastIP = ""
+        RBStatCount = 0
+        RBStatErrors = 0
+        RBStatUptime = 0)
 
     if(boundp('RBIpc) && ipcIsAliveProcess(RBIpc) then
         printf("[RAMIC Bridge ipc=%L pid=%L port=%d] already running\n"
@@ -157,6 +179,10 @@ procedure(RBStart()
         RBLastPid = nil
         RBLastBind = ""
         RBLastHost = ""
+        RBLastIP = ""
+        RBStatCount = 0
+        RBStatErrors = 0
+        RBStatUptime = 0
         prog((host logpath)
             ; Determine host binding based on RBLocal setting
             if(RBLocal then
@@ -218,6 +244,10 @@ procedure(RBStopAll()
     RBIpc = 'unbound
     RBLastPid = nil
     RBLastHost = ""
+    RBLastIP = ""
+    RBStatCount = 0
+    RBStatErrors = 0
+    RBStatUptime = 0
     RBStderrBuf = ""
     printf("[RAMIC Bridge] RBStopAll: killed own daemons (UID-scoped, port=%d); verify: ss -tlnp | grep %d\n"
         RBPort RBPort)
@@ -400,8 +430,9 @@ procedure(RBMRefresh()
 					sprintf(nil "%s  " RBLastHost))
 				(t ""))
 			RBMonitor->RBMState->value = sprintf(nil
-				"RAMIC Bridge: Running   %sipc=%L  pid=%L  bind=%s"
-				hostStr RBIpc RBLastPid bind)
+				"RAMIC Bridge: Running   %sipc=%L  pid=%L  bind=%s   |   %d calls (%d err)  up %s"
+				hostStr RBIpc RBLastPid bind
+				RBStatCount RBStatErrors RBFormatUptime(RBStatUptime))
 		)
 	else
 		RBMonitor->RBMState->value = if(RBLastPid
@@ -445,6 +476,22 @@ procedure(RBMApply()
 	)
 	)
 	)
+)
+
+procedure(RBFormatUptime(s)
+    ; Render a seconds-int as compact "<H>h <M>m" / "<M>m <S>s" / "<S>s".
+    ; Avoids quotient / mod / fix; only ``truncate`` (towards zero) +
+    ; subtraction, which are stable across all observed IC builds.
+    let((sec h m)
+        sec = s
+        h = truncate(sec / 3600.0)
+        sec = sec - h * 3600
+        m = truncate(sec / 60.0)
+        sec = sec - m * 60
+        cond(
+            ((h > 0) sprintf(nil "%dh %dm" h m))
+            ((m > 0) sprintf(nil "%dm %ds" m sec))
+            (t sprintf(nil "%ds" sec))))
 )
 
 procedure(RBPrintEmptyLines(@optional (n 10))

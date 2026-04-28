@@ -11,6 +11,31 @@ import time
 import errno
 import traceback
 
+# Counters surfaced to the SKILL monitor via stderr [RB-stat] lines.
+# Throttled to ~1 Hz so heavy traffic doesn't flood stderr.
+_RB_START_T = time.time()
+_RB_CALLS = 0
+_RB_ERRORS = 0
+_RB_LAST_STAT_T = 0.0
+
+
+def _emit_stat(force=False):
+    global _RB_LAST_STAT_T
+    now = time.time()
+    if not force and now - _RB_LAST_STAT_T < 1.0:
+        return
+    _RB_LAST_STAT_T = now
+    try:
+        sys.stderr.write(
+            "[RB-stat] count={c} errors={e} uptime={u}\n".format(
+                c=_RB_CALLS, e=_RB_ERRORS, u=int(now - _RB_START_T),
+            )
+        )
+        sys.stderr.flush()
+    except Exception:
+        pass
+
+
 try:
     import fcntl as _fcntl
 except ImportError:
@@ -189,6 +214,15 @@ def handle_external_connection(conn, addr):
         watchdog_timer.cancel()
 
         _safe_sendall(conn, returnData)
+
+        # Stats: count this call and tag as error if SKILL sent NAK
+        # (0x15) or the response is empty/malformed.  Throttled emit
+        # below pushes the totals to SKILL via stderr.
+        global _RB_CALLS, _RB_ERRORS
+        _RB_CALLS += 1
+        if not returnData or returnData[:1] != b"\x02":
+            _RB_ERRORS += 1
+        _emit_stat()
 
         # Clean up temp file if we used one
         if tmp_il_path:
