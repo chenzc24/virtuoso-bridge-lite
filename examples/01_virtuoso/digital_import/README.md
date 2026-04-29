@@ -5,6 +5,19 @@ Virtuoso** loop after Genus + Innovus finish.  Both scripts drive a
 *standalone Cadence batch tool* through SKILL ``system()`` (no GUI
 forms, no ``hiFormDone`` gymnastics).
 
+## Platform support
+
+These scripts are pure Python with no host-OS-specific calls — they
+work on Linux, macOS, and Windows.  All paths passed in are *remote*
+Linux paths (the Virtuoso box's filesystem); the local OS only ferries
+strings through ``argparse`` and SSH.
+
+The one Windows catch is **Git Bash / Cygwin / MSYS2**: those
+environments mangle Linux-style absolute paths
+(``/home/zhangz/foo`` becomes ``C:/Program Files/Git/home/zhangz/foo``)
+before argv reaches Python.  Use PowerShell, native ``cmd``, or WSL on
+Windows; Linux and macOS users have nothing to worry about.
+
 ## Common prerequisites
 
 1. ``virtuoso-bridge start`` is running and ``virtuoso-bridge status``
