@@ -101,10 +101,15 @@ def _render_readme(
     last30_views = sorted(views.items())[-30:]
 
     def _table(rows: list[tuple[str, dict[str, int]]], title: str) -> str:
+        # Daily ``unique`` column kept because each entry is GitHub's
+        # authoritative single-day distinct-cloner count.  We do NOT sum
+        # this column anywhere -- summing across days double-counts
+        # cloners who returned, which over-estimates the rolling-window
+        # set-unique that GitHub itself reports.
         lines = [
             f"### {title}",
             "",
-            "| Date | Total | Unique |",
+            "| Date | Total | Unique that day |",
             "|---|---:|---:|",
         ]
         if not rows:
@@ -113,14 +118,8 @@ def _render_readme(
             lines.append(f"| {date} | {v['count']} | {v['uniques']} |")
         return "\n".join(lines)
 
-    def _totals(history: dict[str, dict[str, int]]) -> tuple[int, int]:
-        return (
-            sum(v["count"] for v in history.values()),
-            sum(v["uniques"] for v in history.values()),
-        )
-
-    clones_total, clones_unique = _totals(clones)
-    views_total, views_unique = _totals(views)
+    clones_total = sum(v["count"] for v in clones.values())
+    views_total  = sum(v["count"] for v in views.values())
 
     return "\n".join([
         f"# `{owner}/{repo}` Traffic",
@@ -132,25 +131,28 @@ def _render_readme(
         "",
         "## Lifetime totals (in tracked window)",
         "",
-        f"- **Clones:** {clones_total} ({clones_unique} unique)",
-        f"- **Views:**  {views_total} ({views_unique} unique)",
+        f"- **Clones:** {clones_total}",
+        f"- **Views:**  {views_total}",
         "",
-        "> Notes:",
-        "> - **\"Unique\" totals are sums of daily-unique counts**, not the",
-        "    GitHub-style deduplicated set across the whole window.  A cloner",
-        "    who shows up on N different days is counted N times here.",
+        "_Only `count` totals are reported.  Per-day unique cloners /",
+        "viewers are kept in the daily tables but **not summed** -- a",
+        "cloner who returns on N different days would be counted N",
+        "times, over-stating the real distinct-cloner population that",
+        "GitHub itself reports as a 14-day rolling set._",
+        "",
+        "> Provenance notes for the early window:",
         "> - **2026-04-02 to 2026-04-12**: the saved Traffic-page screenshot",
-        "    labelled the 14-day window with **3360 clones / 1014 unique cloners**",
-        "    (those window totals are exact); the *per-day* breakdown was",
-        "    eyeballed off the folded-line chart, so individual days are",
-        "    ±15% but the per-window sum matches within ~1%.",
-        "> - **2026-04-13** was inferred from the owner's recall of GitHub's",
-        "    rolling-unique reading that day (>1100); rough single-day estimate.",
+        "    labelled the 14-day window with **3360 clones** total",
+        "    (window total is exact); the *per-day* breakdown was eyeballed",
+        "    off the folded-line chart, so individual days are ±15% but the",
+        "    per-window sum matches within ~1%.",
+        "> - **2026-04-13** was inferred from the owner's recall that the",
+        "    rolling-unique reading exceeded 1100 that day; rough single-day",
+        "    estimate.",
         "> - **Views for 2026-04-02 .. 04-13** had no screenshot at all, so",
         "    they were extrapolated from the clones series using the",
         "    views/clones ratio measured on the API-authoritative window",
-        "    (04-14..04-27): ~1.84× for total views, ~1.39× for unique",
-        "    viewers.  Treat as same-order-of-magnitude only.",
+        "    (04-14..04-27): ~1.84×.  Treat as same-order-of-magnitude only.",
         "> - **2026-04-14 onwards** is the authoritative API data.",
         "",
         _table(last30_clones, "Last 30 days — Clones"),
@@ -203,26 +205,30 @@ def main() -> int:
     # Shields.io endpoint badges -- consumed by README.md via
     # https://img.shields.io/endpoint?url=<raw URL>.  Schema:
     # https://shields.io/endpoint
-    def _badge(label: str, total: int, uniques: int, color: str) -> dict:
+    #
+    # Only the ``count`` totals are surfaced.  Daily-unique sums are
+    # deliberately omitted because cross-day sums double-count cloners
+    # who return on multiple days, over-stating the real distinct
+    # population (GitHub reports that as a 14-day rolling SET, not
+    # something we can reconstruct from daily numbers post-hoc).
+    def _badge(label: str, total: int, color: str) -> dict:
         return {
             "schemaVersion": 1,
             "label": label,
-            "message": f"{total} ({uniques} unique)",
+            "message": str(total),
             "color": color,
             "cacheSeconds": 3600,
         }
 
     clones_total = sum(v["count"] for v in clones.values())
-    clones_uniq  = sum(v["uniques"] for v in clones.values())
     views_total  = sum(v["count"] for v in views.values())
-    views_uniq   = sum(v["uniques"] for v in views.values())
 
     (STATS_DIR / "clones-badge.json").write_text(
-        json.dumps(_badge("clones", clones_total, clones_uniq, "blue")) + "\n",
+        json.dumps(_badge("clones", clones_total, "blue")) + "\n",
         encoding="utf-8",
     )
     (STATS_DIR / "views-badge.json").write_text(
-        json.dumps(_badge("views",  views_total,  views_uniq,  "green")) + "\n",
+        json.dumps(_badge("views",  views_total,  "green")) + "\n",
         encoding="utf-8",
     )
 
