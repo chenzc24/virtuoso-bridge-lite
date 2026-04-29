@@ -1,0 +1,53 @@
+name: track-traffic
+
+# GitHub's Traffic API only retains 14 days of history.  This workflow polls
+# daily and commits the merged history to stats/ so we keep a long-term
+# record without any external storage.
+
+on:
+  schedule:
+    # 04:17 UTC daily.  Off the hour to avoid the GitHub-runner thundering
+    # herd at :00.
+    - cron: '17 4 * * *'
+  workflow_dispatch:  # allow manual runs from the Actions tab
+
+permissions:
+  contents: write   # to commit stats/ back to main
+
+concurrency:
+  group: track-traffic
+  cancel-in-progress: false
+
+jobs:
+  track:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Pull traffic stats
+        env:
+          # The default GITHUB_TOKEN works for repos whose owner has
+          # enabled Actions read access to traffic data.  If the API
+          # returns 403, replace this with a PAT stored as a repo
+          # secret named TRAFFIC_PAT (with `public_repo` or `repo`
+          # scope) and reference ${{ secrets.TRAFFIC_PAT }} here.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+        run: python scripts/track_traffic.py
+
+      - name: Commit if changed
+        run: |
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add stats/
+          if git diff --cached --quiet; then
+            echo "no traffic update"
+          else
+            git commit -m "stats: traffic update $(date -u '+%Y-%m-%d')"
+            git push
+          fi
