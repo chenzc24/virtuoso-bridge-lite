@@ -84,6 +84,35 @@ If ``import_verilog.py`` ever fails, look at
 ``<virtuoso_workdir>/verilogIn.batch.log`` — that's where ``ihdl``
 writes detailed diagnostics.
 
+## Porting to a non-TSMC-N28 PDK
+
+Three CLI flags are PDK-sensitive — defaults below were chosen for the
+TSMC N28 12-track family this repo grew up with.  When you switch to a
+different PDK or different cell library, override them on the command
+line (none of the scripts hard-code paths or library names).
+
+| Flag | Where | Default | Override when... |
+|---|---|---|---|
+| `--tech-lib` | `import_gds.py` | `tsmcN28` | The OA tech library that supplies your design rules / layer table is named differently in your `cds.lib` |
+| `--ref-libs` | `import_verilog.py` | `tcbn28hpcplusbwp12t30p140` | You're targeting a different std-cell library (e.g. `sky130_fd_sc_hd`) |
+| `--power-pin`, `--ground-pin` | `add_power_labels.py` | `VDD`, `VSS` | Open-source PDKs often use `VPWR`/`VGND` instead |
+| `--height` | `add_power_labels.py` | `1.0` µm | Std-cell row height differs.  28 nm 12T row = 1.2 µm so 1 µm fits.  For 7 nm 5T cells (row ≈ 0.5 µm) drop to 0.3–0.4 |
+
+Examples for sky130:
+
+```bash
+python import_gds.py        my.gds         --target-lib MY_LIB --tech-lib sky130A --ref-libs $PDK_ROOT/sky130A/libs.tech/sky130_fd_pr
+python import_verilog.py    my_import.v    --target-lib MY_LIB --ref-libs sky130_fd_sc_hd
+python add_power_labels.py  --target-lib MY_LIB --cell my --power-pin VPWR --ground-pin VGND --height 0.4
+```
+
+There's also one IC-version dependency (not PDK):
+``import_verilog.py`` writes ``structural_views := 5`` into the
+``ihdl_parameter`` file, which is the IC618 batch encoding for "schematic +
+functional".  Cross-tested only on IC618 SP201; if a future IC release
+renumbers the encoding, the fix is a one-line lookup-table update in
+``STRUCTURAL_VIEWS`` at the top of the script.
+
 ## Why these are recipes, not first-class CLI commands
 
 Both scripts delegate to vendor batch tools whose option semantics are

@@ -250,6 +250,12 @@ Load on demand — each contains detailed API docs and edge-case guidance:
 - `08_gui_open_snapshot_close.py` — GUI open → snapshot artifacts → close (owns lifecycle)
 - `09_snapshot_with_metrics.py` — snapshot the focused maestro to a timestamped directory (disk artifacts)
 
+### `examples/01_virtuoso/digital_import/`
+Hand off Genus/Innovus P&R products into a Virtuoso library.  All three scripts wrap standalone Cadence batch tools (`strmin` / `ihdl`) via SKILL `system()` — no GUI forms, no manual bootstrap.  See that folder's `README.md` for prerequisites, PDK-portability notes, and full CLI reference.
+- `import_gds.py` — routed layout via `strmin`
+- `import_verilog.py` — schematic + symbol via `ihdl` batch (the official CLI entry point for Verilog Import)
+- `add_power_labels.py` — drop VDD/VSS labels on a routed layout by reflectively reading std-cell pin geometry (no `--ref-cell` needed, auto-discovers)
+
 ## Common workflows
 
 ### Find which library contains a cell

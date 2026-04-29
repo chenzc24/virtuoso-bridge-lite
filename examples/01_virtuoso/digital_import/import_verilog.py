@@ -107,12 +107,12 @@ def main() -> int:
         help="Symbol view name (default: symbol)",
     )
     parser.add_argument(
-        "--power-net", default="VDD!",
-        help="Power-net name in the schematic (default: VDD!)",
+        "--power-net", default="VDDD",
+        help="Power-net name in the schematic (default: VDDD)",
     )
     parser.add_argument(
-        "--ground-net", default="GND!",
-        help="Ground-net name in the schematic (default: GND!)",
+        "--ground-net", default="VSSS",
+        help="Ground-net name in the schematic (default: VSSS)",
     )
     parser.add_argument(
         "--structural-views", default="schematic",
