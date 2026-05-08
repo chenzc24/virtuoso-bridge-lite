@@ -196,6 +196,40 @@ def parse_psf_ascii_directory(output_dir: Path) -> dict[str, Any]:
 
     return merged_data
 
+
+def parse_sweep_psf_directory(output_dir: Path) -> dict[int, dict[str, Any]]:
+    """Parse Spectre parametric-sweep output directory.
+
+    Spectre sweep creates subdirectories per sweep point:
+        <raw>/sw1.sweep1/1/tran.tran.tran
+        <raw>/sw1.sweep1/2/tran.tran.tran
+        ...
+
+    Returns ``{point_index: {signal: values}}`` where point_index starts at 1.
+    Returns empty dict if no sweep subdirectories found.
+    """
+    scan_root = _spectre_psf_scan_root(output_dir)
+    sweep_data: dict[int, dict[str, Any]] = {}
+
+    # Look for sweep subdirectories: sw<N>.sweep<N> containing numbered dirs
+    for sweep_dir in sorted(scan_root.glob("sw*.sweep*")):
+        if not sweep_dir.is_dir():
+            continue
+        for point_dir in sorted(sweep_dir.iterdir()):
+            if not point_dir.is_dir():
+                continue
+            # Point directories are named 1, 2, 3, ...
+            try:
+                point_idx = int(point_dir.name)
+            except ValueError:
+                continue
+            # Parse each point directory as a regular (non-swept) result
+            point_data = parse_psf_ascii_directory(point_dir)
+            if point_data:
+                sweep_data[point_idx] = point_data
+
+    return sweep_data
+
 # ---------------------------------------------------------------------------
 # Parsing internals
 # ---------------------------------------------------------------------------
@@ -248,7 +282,13 @@ def _parse_psf_swept_data(
     n: int,
     sections: dict[str, int],
 ) -> dict[str, Any]:
-    """Parse swept PSF ASCII data (transient / DC sweep / AC)."""
+    """Parse swept PSF ASCII data (transient / DC sweep / AC).
+
+    Handles Spectre's delta-compressed output: the first time step
+    contains all signal values; subsequent steps only include signals
+    that changed.  Step-interpolation fills in missing values so every
+    signal has the same length as the sweep variable.
+    """
     # Sweep variable name
     sweep_var = ""
     sweep_start = sections["SWEEP"] + 1
@@ -262,8 +302,16 @@ def _parse_psf_swept_data(
             sweep_var = m.group(1)
             break
 
-    # Trace (dependent variable) names
+    # Trace (dependent variable) names and optional GROUP→signal mapping.
+    # PSF ASCII TRACE section uses pairs:
+    #   " N" GROUP 1
+    #   "signal_name" "V"
+    # The VALUE section references by N, not by signal name.
+    # We build a mapping from N → signal_name so data is stored under
+    # the human-readable name.
     trace_names: list[str] = []
+    group_to_name: dict[str, str] = {}  # " 401" → "CLK_NET"
+    current_group: str | None = None
     if "TRACE" in sections:
         trace_start = sections["TRACE"] + 1
         trace_end = sections.get("VALUE", n)
@@ -271,6 +319,21 @@ def _parse_psf_swept_data(
             stripped = lines[i].strip()
             if not stripped or stripped in ("VALUE", "END"):
                 break
+            # GROUP marker: " N" GROUP 1
+            m_group = re.match(r'"(\s*\d+)"\s+GROUP\s+\d+', stripped)
+            if m_group:
+                current_group = m_group.group(1)
+                continue
+            # Signal definition: "name" "V" or "name" "I" etc.
+            m_sig = re.match(r'"([^"]+)"\s+"[^"]*"', stripped)
+            if m_sig:
+                sig_name = m_sig.group(1)
+                trace_names.append(sig_name)
+                if current_group is not None:
+                    group_to_name[current_group] = sig_name
+                current_group = None
+                continue
+            # Fallback: bare quoted name (no unit)
             m = re.match(r'"([^"]+)"', stripped)
             if m:
                 trace_names.append(m.group(1))
@@ -278,13 +341,15 @@ def _parse_psf_swept_data(
     if not sweep_var:
         return {}
 
-    data: dict[str, list[float | complex]] = {sweep_var: []}
-    for name in trace_names:
-        data[name] = []
-
-    # Parse VALUE section
+    # --- Two-pass approach for delta-compressed PSF ---
+    # Pass 1: Collect raw (key, value) pairs and time markers.
+    # Pass 2: Step-interpolate to build equal-length signal vectors.
     value_start = sections["VALUE"] + 1
     value_end = sections.get("END", n)
+
+    # Parse all VALUE entries into a flat list of (key, value) pairs,
+    # with None marking time-step boundaries.
+    raw_entries: list[tuple[str | None, float | complex | None]] = []
     for i in range(value_start, value_end):
         stripped = lines[i].strip()
         if not stripped or stripped == "END":
@@ -292,37 +357,72 @@ def _parse_psf_swept_data(
         # Complex value: "name" (real imag) → store as Python complex
         m_complex = re.match(r'"([^"]+)"\s+\(\s*([-+0-9.eE]+)\s+([-+0-9.eE]+)\s*\)', stripped)
         if m_complex:
-            sig_name = m_complex.group(1)
+            raw_key = m_complex.group(1)
+            sig_name = group_to_name.get(raw_key, raw_key)
             try:
                 real = float(m_complex.group(2))
                 imag = float(m_complex.group(3))
                 value = complex(real, imag)
             except ValueError:
                 continue
-            if sig_name in data:
-                data[sig_name].append(value)
+            raw_entries.append((sig_name, value))
             continue
         # Scalar value: "name" value
         m = re.match(r'"([^"]+)"\s+(\S+)', stripped)
         if m:
-            sig_name = m.group(1)
-            try:
-                value = float(m.group(2))
-            except ValueError:
-                continue
-            if sig_name in data:
-                data[sig_name].append(value)
+            raw_key = m.group(1)
+            if raw_key == sweep_var:
+                # Time-step boundary marker
+                try:
+                    t_val: float | complex = float(m.group(2))
+                except ValueError:
+                    continue
+                raw_entries.append((None, t_val))
+            else:
+                sig_name = group_to_name.get(raw_key, raw_key)
+                try:
+                    value = float(m.group(2))
+                except ValueError:
+                    continue
+                raw_entries.append((sig_name, value))
+
+    # Pass 2: Step-interpolate — build time vector and per-signal vectors.
+    # Each time-step boundary resets which signals to record at that step.
+    time_values: list[float | complex] = []
+    # Current value of each signal (carry-forward / step-interpolation)
+    signal_state: dict[str, float | complex] = {}
+    # Output: per-signal list of values at each time step
+    signal_series: dict[str, list[float | complex]] = {
+        name: [] for name in trace_names
+    }
+
+    for key, value in raw_entries:
+        if key is None:
+            # Time-step boundary: snapshot all signals at the previous step
+            if time_values:
+                for name in trace_names:
+                    signal_series[name].append(signal_state.get(name, 0.0))
+            time_values.append(value)  # type: ignore[arg-type]
+        else:
+            signal_state[key] = value  # type: ignore[assignment]
+
+    # Snapshot at the last time step
+    if time_values:
+        for name in trace_names:
+            signal_series[name].append(signal_state.get(name, 0.0))
+
+    data: dict[str, list[float | complex]] = {sweep_var: time_values}
+    data.update(signal_series)
 
     # Sanity-check lengths
-    if data.get(sweep_var):
-        expected = len(data[sweep_var])
-        for name in trace_names:
-            actual = len(data.get(name, []))
-            if actual != expected:
-                logger.warning(
-                    "PSF ASCII: signal '%s' has %d points, expected %d",
-                    name, actual, expected,
-                )
+    expected = len(time_values)
+    for name in trace_names:
+        actual = len(data.get(name, []))
+        if actual != expected:
+            logger.warning(
+                "PSF ASCII: signal '%s' has %d points, expected %d",
+                name, actual, expected,
+            )
 
     return data  # type: ignore[return-value]
 
