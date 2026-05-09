@@ -363,7 +363,12 @@ def _build_simulation_result(
     combined_lower = combined.lower()
 
     # Classify errors into short, actionable messages
-    if "circuit read-in" in combined_lower:
+    # "Circuit read-in complete" is normal Spectre output — only flag actual
+    # read-in *errors* which contain "error reading" or "read-in failed".
+    has_readin_error = (
+        ("error reading" in combined_lower or "read-in failed" in combined_lower)
+    )
+    if has_readin_error:
         errors.append("netlist read error (missing include or syntax)")
     elif "license" in combined_lower and ("error" in combined_lower or "denied" in combined_lower):
         errors.append("license error")

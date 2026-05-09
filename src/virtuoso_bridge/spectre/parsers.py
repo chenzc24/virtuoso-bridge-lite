@@ -200,10 +200,15 @@ def parse_psf_ascii_directory(output_dir: Path) -> dict[str, Any]:
 def parse_sweep_psf_directory(output_dir: Path) -> dict[int, dict[str, Any]]:
     """Parse Spectre parametric-sweep output directory.
 
-    Spectre sweep creates subdirectories per sweep point:
-        <raw>/sw1.sweep1/1/tran.tran.tran
-        <raw>/sw1.sweep1/2/tran.tran.tran
-        ...
+    Two naming conventions are supported:
+
+    1. Subdirectory-per-point (classic Spectre):
+       ``<raw>/sw1.sweep1/1/tran.tran.tran``
+
+    2. Flat per-point files (Spectre X/LX +preset=lx):
+       ``<raw>/sw1-000_tran.tran.tran``
+       ``<raw>/sw1-001_tran.tran.tran``
+       ...
 
     Returns ``{point_index: {signal: values}}`` where point_index starts at 1.
     Returns empty dict if no sweep subdirectories found.
@@ -218,15 +223,32 @@ def parse_sweep_psf_directory(output_dir: Path) -> dict[int, dict[str, Any]]:
         for point_dir in sorted(sweep_dir.iterdir()):
             if not point_dir.is_dir():
                 continue
-            # Point directories are named 1, 2, 3, ...
             try:
                 point_idx = int(point_dir.name)
             except ValueError:
                 continue
-            # Parse each point directory as a regular (non-swept) result
             point_data = parse_psf_ascii_directory(point_dir)
             if point_data:
                 sweep_data[point_idx] = point_data
+
+    if sweep_data:
+        return sweep_data
+
+    # Fallback: flat per-point files (Spectre X/LX mode)
+    # Files named sw1-000_tran.tran.tran, sw1-001_tran.tran.tran, ...
+    # Spectre X/LX uses zero-padded indices (000, 001, ...); extract the
+    # numeric part and convert from 0-indexed to 1-indexed to match the
+    # subdirectory convention (1/, 2/, ...).
+    for psf_file in sorted(scan_root.glob("sw*-[0-9]*_*")):
+        if not psf_file.is_file():
+            continue
+        m = re.match(r"sw\d+-(\d+)_.+", psf_file.name)
+        if not m:
+            continue
+        point_idx = int(m.group(1)) + 1
+        result = parse_spectre_psf_ascii(psf_file)
+        if result.data:
+            sweep_data[point_idx] = result.data
 
     return sweep_data
 
